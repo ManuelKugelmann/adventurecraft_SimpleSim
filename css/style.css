@@ -1,0 +1,122 @@
+/* style.css — Grid layout, dark theme, entity colors */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 18px;
+  color: #a0c4ff;
+  margin-bottom: 8px;
+}
+
+/* Control panel */
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#controls button {
+  background: #2a2a4a;
+  color: #c0c0e0;
+  border: 1px solid #4a4a6a;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+#controls button:hover {
+  background: #3a3a5a;
+}
+
+#controls button.active {
+  background: #4a6a8a;
+  border-color: #6a8aaa;
+}
+
+#controls label {
+  font-size: 13px;
+  color: #a0a0c0;
+}
+
+#controls select {
+  background: #2a2a4a;
+  color: #c0c0e0;
+  border: 1px solid #4a4a6a;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+#tick-display {
+  font-size: 13px;
+  color: #a0a0c0;
+}
+
+/* Stats bar */
+#stats {
+  font-size: 13px;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+
+#stats span {
+  font-size: 14px;
+  margin-right: 1px;
+}
+
+/* Grid */
+#grid {
+  display: grid;
+  gap: 0;
+  line-height: 12px;
+  font-size: 11px;
+  border: 1px solid #333;
+  user-select: none;
+}
+
+.cell {
+  width: 12px;
+  height: 12px;
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.cell:hover {
+  outline: 1px solid #fff3;
+}
+
+/* Inspector */
+#inspector {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b0b0d0;
+  min-height: 18px;
+  max-width: 960px;
+  text-align: center;
+}
+
+#inspector b {
+  color: #d0d0f0;
+}

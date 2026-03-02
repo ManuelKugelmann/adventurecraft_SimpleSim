@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdventureCraft SimpleSim</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <h1>AdventureCraft SimpleSim</h1>
+
+  <div id="controls">
+    <button id="btn-play">&#9654; Play</button>
+    <button id="btn-pause" class="active">&#9646;&#9646; Pause</button>
+    <button id="btn-step">Step</button>
+    <label>Speed:
+      <select id="speed-select">
+        <option value="0">1x</option>
+        <option value="1">2x</option>
+        <option value="2">5x</option>
+        <option value="3">Max</option>
+      </select>
+    </label>
+    <span id="tick-display">Tick: <span id="tick-count">0</span></span>
+    <button id="btn-reset">Reset</button>
+  </div>
+
+  <div id="stats"></div>
+  <div id="grid"></div>
+  <div id="inspector">Click a cell to inspect</div>
+
+  <!-- Scripts in dependency order: no modules, no build step -->
+  <script src="js/config.js"></script>
+  <script src="js/node.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/groups.js"></script>
+  <script src="js/planner.js"></script>
+  <script src="js/roles.js"></script>
+  <script src="js/simulation.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
