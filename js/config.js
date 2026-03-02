@@ -31,6 +31,7 @@ var CONFIG = {
   ENERGY_DRAIN: 0.15,
   PLANT_GROW_RATE: 0.8,
   PLANT_MAX_DENSITY: 5,    // max count per tile in region
+  SEED_DROP_RATE: 0.02,    // chance per tick that a plant drops seeds/grains
 
   // Group interactions — compound statistics
   FEED_RATE: 0.3,          // fraction of group that feeds per tick
@@ -39,6 +40,7 @@ var CONFIG = {
   STARVE_RATE: 0.08,       // fraction that dies per tick when starving
   MAX_GROUP_SIZE: 40,
   MERGE_THRESHOLD: 15,     // max hunger difference for merge
+  PLACEHOLDER_MAX: 5,      // simulate individuals below this count
 
   // Food value per kill/eat (hunger reduction per unit eaten)
   FOOD_PER_PLANT: 0.8,     // per plant count eaten → hunger reduction per group member
@@ -56,6 +58,7 @@ var TILE_TYPES = {
 };
 
 var TEMPLATES = {
+  // --- Plants (group trait for merge/split) ---
   grass: {
     category: 'plant',
     symbol: '♣',
@@ -66,6 +69,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
+      group: { mergeThreshold: 15, maxSize: 200 },
     },
   },
   bush: {
@@ -78,6 +82,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
+      group: { mergeThreshold: 15, maxSize: 100 },
     },
   },
   tree: {
@@ -90,8 +95,35 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore'] },
+      group: { mergeThreshold: 15, maxSize: 50 },
     },
   },
+  // --- Items (bulk nodes, no agency, no vitals) ---
+  grains: {
+    category: 'item',
+    symbol: '∴',
+    color: '#c8b040',
+    renderPriority: 3,
+    defaultCount: 10,
+    strength: 0,
+    traits: {
+      diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
+      group: { mergeThreshold: 999, maxSize: 200 },
+    },
+  },
+  seeds: {
+    category: 'item',
+    symbol: '·',
+    color: '#a09050',
+    renderPriority: 3,
+    defaultCount: 8,
+    strength: 0,
+    traits: {
+      diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
+      group: { mergeThreshold: 999, maxSize: 200 },
+    },
+  },
+  // --- Herbivores ---
   rabbit: {
     category: 'herbivore',
     symbol: '◆',
@@ -102,8 +134,9 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 3 },
-      diet: { eats: ['plant'], eatenBy: ['carnivore', 'omnivore'] },
+      diet: { eats: ['plant', 'item'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
   deer: {
@@ -116,10 +149,12 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 2 },
-      diet: { eats: ['plant'], eatenBy: ['carnivore', 'omnivore'] },
+      diet: { eats: ['plant', 'item'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
+  // --- Omnivores ---
   pig: {
     category: 'omnivore',
     symbol: '●',
@@ -130,8 +165,9 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 1 },
-      diet: { eats: ['plant', 'herbivore'], eatenBy: ['carnivore'] },
+      diet: { eats: ['plant', 'item', 'herbivore'], eatenBy: ['carnivore'] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
   bear: {
@@ -144,10 +180,12 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 1 },
-      diet: { eats: ['plant', 'herbivore', 'omnivore'], eatenBy: [] },
+      diet: { eats: ['plant', 'item', 'herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 20 },
     },
   },
+  // --- Carnivores ---
   fox: {
     category: 'carnivore',
     symbol: '▸',
@@ -160,6 +198,7 @@ var TEMPLATES = {
       spatial: { speed: 3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
       agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 30 },
     },
   },
   wolf: {
@@ -174,6 +213,7 @@ var TEMPLATES = {
       spatial: { speed: 2 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      group: { mergeThreshold: 15, maxSize: 25 },
     },
   },
 };

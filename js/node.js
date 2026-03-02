@@ -1,5 +1,6 @@
 // node.js — Unified Node with count, container, rough position
-// Same node works for count=1 (individual) or count=50 (group)
+// Every node has a count. Nodes with a group trait merge/split on homogeneity.
+// Items (grains, seeds) are nodes too — just no agency.
 // container points to a tile or tilegroup (region)
 
 var nextNodeId = 1;

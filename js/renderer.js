@@ -238,6 +238,12 @@ var Renderer = {
       parts.push('role:' + a.activeRole);
       if (a.activePlan) parts.push('plan:' + a.activePlan.goal);
       if (a.lastAction) parts.push('action:' + a.lastAction);
+      if (a.actionSpread) {
+        var sp = [];
+        var sk = Object.keys(a.actionSpread);
+        for (var s = 0; s < sk.length; s++) sp.push(sk[s] + ':' + a.actionSpread[sk[s]]);
+        if (sp.length > 0) parts.push('spread[' + sp.join(' ') + ']');
+      }
     }
 
     this.inspectorEl.innerHTML = parts.join(' | ');

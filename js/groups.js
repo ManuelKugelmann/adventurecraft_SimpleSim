@@ -1,6 +1,6 @@
-// groups.js — Merge/split on homogeneity
-// Same-species groups in same region with similar traits merge.
-// Oversized groups split: half stays, half moves to adjacent region.
+// groups.js — Merge/split rules for nodes with the group trait
+// Groups are just nodes with traits.group. Merge/split is trait-driven.
+// Any node with count > 1 and traits.group participates.
 
 var Groups = {
   update: function() {
@@ -8,42 +8,45 @@ var Groups = {
     this.splitPass();
   },
 
-  // Merge: same species + same region + similar vitals → combine
+  // Merge: same species + same container + similar vitals → combine
   mergePass: function() {
-    // Build per-region, per-species lists
-    var regionSpecies = {};  // "regionId:templateId" → [node]
+    var containerSpecies = {};  // "containerId:templateId" → [node]
     World.nodes.forEach(function(node) {
-      if (!node.alive || !node.traits.agency) return;
+      if (!node.alive || !node.traits.group) return;
       var key = node.container + ':' + node.templateId;
-      if (!regionSpecies[key]) regionSpecies[key] = [];
-      regionSpecies[key].push(node);
+      if (!containerSpecies[key]) containerSpecies[key] = [];
+      containerSpecies[key].push(node);
     });
 
-    var keys = Object.keys(regionSpecies);
+    var keys = Object.keys(containerSpecies);
     for (var k = 0; k < keys.length; k++) {
-      var group = regionSpecies[keys[k]];
+      var group = containerSpecies[keys[k]];
       if (group.length < 2) continue;
 
-      // Try to merge pairs
       for (var i = 0; i < group.length; i++) {
         if (!group[i].alive) continue;
         for (var j = i + 1; j < group.length; j++) {
           if (!group[j].alive) continue;
 
           var a = group[i], b = group[j];
-          var va = a.traits.vitals, vb = b.traits.vitals;
-          if (!va || !vb) continue;
+          var gt = a.traits.group;
 
-          // Check similarity: hunger difference within threshold
-          if (Math.abs(va.hunger - vb.hunger) < CONFIG.MERGE_THRESHOLD) {
-            // Merge b into a: weighted average vitals
+          // Items (no vitals): always merge
+          if (!a.traits.vitals || !b.traits.vitals) {
+            a.count += b.count;
+            computeSpread(a);
+            World.removeGroup(b);
+            continue;
+          }
+
+          // Agents/plants: merge if hunger difference within threshold
+          var va = a.traits.vitals, vb = b.traits.vitals;
+          if (Math.abs(va.hunger - vb.hunger) < gt.mergeThreshold) {
             var totalCount = a.count + b.count;
             va.hunger = (va.hunger * a.count + vb.hunger * b.count) / totalCount;
             va.energy = (va.energy * a.count + vb.energy * b.count) / totalCount;
             a.count = totalCount;
             computeSpread(a);
-
-            // Remove b
             World.removeGroup(b);
           }
         }
@@ -51,11 +54,12 @@ var Groups = {
     }
   },
 
-  // Split: groups that exceed MAX_GROUP_SIZE → half moves to adjacent region
+  // Split: nodes exceeding their group.maxSize → half moves to adjacent container
   splitPass: function() {
     var toSplit = [];
     World.nodes.forEach(function(node) {
-      if (node.alive && node.traits.agency && node.count > CONFIG.MAX_GROUP_SIZE) {
+      if (!node.alive || !node.traits.group) return;
+      if (node.count > node.traits.group.maxSize) {
         toSplit.push(node);
       }
     });
@@ -64,17 +68,15 @@ var Groups = {
       var node = toSplit[i];
       if (!node.alive) continue;
 
-      // Find an adjacent walkable region for the split-off group
       var neighbors = World.walkableNeighbors(node.container);
       var targetRegion = neighbors.length > 0
         ? neighbors[Math.floor(Math.random() * neighbors.length)]
-        : node.container;  // stay in same container if no neighbors
+        : node.container;
 
       var splitCount = Math.floor(node.count / 2);
       node.count -= splitCount;
       computeSpread(node);
 
-      // Create new group with split-off members
       var newNode = createNode(node.templateId);
       newNode.count = splitCount;
       newNode.container = targetRegion;
@@ -85,16 +87,15 @@ var Groups = {
 
       // Copy vitals with slight variation
       if (node.traits.vitals) {
-        newNode.traits.vitals.hunger = node.traits.vitals.hunger + (Math.random() - 0.5) * 5;
-        newNode.traits.vitals.energy = node.traits.vitals.energy + (Math.random() - 0.5) * 5;
-        newNode.traits.vitals.hunger = Math.max(0, Math.min(100, newNode.traits.vitals.hunger));
-        newNode.traits.vitals.energy = Math.max(0, Math.min(100, newNode.traits.vitals.energy));
+        newNode.traits.vitals.hunger = clampVital(node.traits.vitals.hunger + (Math.random() - 0.5) * 5);
+        newNode.traits.vitals.energy = clampVital(node.traits.vitals.energy + (Math.random() - 0.5) * 5);
       }
 
-      // Register in world
       World.nodes.set(newNode.id, newNode);
       if (!World.byRegion.has(targetRegion)) World.byRegion.set(targetRegion, new Set());
       World.byRegion.get(targetRegion).add(newNode.id);
     }
   },
 };
+
+function clampVital(v) { return Math.max(0, Math.min(100, v)); }
