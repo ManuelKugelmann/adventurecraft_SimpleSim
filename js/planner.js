@@ -124,11 +124,11 @@ function fleeRegion(node) {
   if (threats.length === 0) return 'done';
 
   // Pick a walkable neighbor region away from threats
-  var neighbors = World.walkableNeighbors(node.region);
+  var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return 'fail';
 
   // Score each neighbor: prefer regions farther from threats
-  var threatRegion = threats[0].region; // primary threat location
+  var threatRegion = threats[0].container; // primary threat location
   var best = null;
   var bestScore = -Infinity;
   for (var i = 0; i < neighbors.length; i++) {
@@ -157,7 +157,7 @@ function fleeRegion(node) {
 function findFoodRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.region);
+  var neighbors = World.walkableNeighbors(node.container);
   for (var i = 0; i < neighbors.length; i++) {
     var groups = World.groupsInRegion(neighbors[i]);
     for (var j = 0; j < groups.length; j++) {
@@ -176,7 +176,7 @@ function findFoodRegion(node) {
 function findPreyRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.region);
+  var neighbors = World.walkableNeighbors(node.container);
   for (var i = 0; i < neighbors.length; i++) {
     var groups = World.groupsInRegion(neighbors[i]);
     for (var j = 0; j < groups.length; j++) {

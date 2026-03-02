@@ -14,7 +14,7 @@ var Groups = {
     var regionSpecies = {};  // "regionId:templateId" → [node]
     World.nodes.forEach(function(node) {
       if (!node.alive || !node.traits.agency) return;
-      var key = node.region + ':' + node.templateId;
+      var key = node.container + ':' + node.templateId;
       if (!regionSpecies[key]) regionSpecies[key] = [];
       regionSpecies[key].push(node);
     });
@@ -65,10 +65,10 @@ var Groups = {
       if (!node.alive) continue;
 
       // Find an adjacent walkable region for the split-off group
-      var neighbors = World.walkableNeighbors(node.region);
+      var neighbors = World.walkableNeighbors(node.container);
       var targetRegion = neighbors.length > 0
         ? neighbors[Math.floor(Math.random() * neighbors.length)]
-        : node.region;  // stay in same region if no neighbors
+        : node.container;  // stay in same container if no neighbors
 
       var splitCount = Math.floor(node.count / 2);
       node.count -= splitCount;
@@ -77,7 +77,7 @@ var Groups = {
       // Create new group with split-off members
       var newNode = createNode(node.templateId);
       newNode.count = splitCount;
-      newNode.region = targetRegion;
+      newNode.container = targetRegion;
       var region = World.regions.get(targetRegion);
       newNode.center.x = region.center.x;
       newNode.center.y = region.center.y;

@@ -9,7 +9,7 @@ var Rules = {
 
     if (tmpl.category === 'plant') {
       // Plant growth: count increases based on region fertility
-      var region = World.regions.get(node.region);
+      var region = World.regions.get(node.container);
       if (region) {
         var maxCount = CONFIG.PLANT_MAX_DENSITY * region.tileCount;
         if (node.count < maxCount) {

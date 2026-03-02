@@ -101,7 +101,7 @@ var World = {
   spawnGroup: function(templateId, regionId) {
     var node = createNode(templateId);
     var region = this.regions.get(regionId);
-    node.region = regionId;
+    node.container = regionId;
     node.center.x = region.center.x;
     node.center.y = region.center.y;
     computeSpread(node);
@@ -113,12 +113,12 @@ var World = {
 
   moveGroup: function(node, newRegionId) {
     // Remove from old region
-    if (node.region !== null) {
-      var oldSet = this.byRegion.get(node.region);
+    if (node.container !== null) {
+      var oldSet = this.byRegion.get(node.container);
       if (oldSet) oldSet.delete(node.id);
     }
     // Add to new region
-    node.region = newRegionId;
+    node.container = newRegionId;
     var region = this.regions.get(newRegionId);
     node.center.x = region.center.x;
     node.center.y = region.center.y;
@@ -128,8 +128,8 @@ var World = {
 
   removeGroup: function(node) {
     node.alive = false;
-    if (node.region !== null) {
-      var set = this.byRegion.get(node.region);
+    if (node.container !== null) {
+      var set = this.byRegion.get(node.container);
       if (set) set.delete(node.id);
     }
     this.nodes.delete(node.id);

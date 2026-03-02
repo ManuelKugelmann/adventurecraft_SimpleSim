@@ -1,5 +1,6 @@
-// node.js — Unified Node with count, region, rough position
+// node.js — Unified Node with count, container, rough position
 // Same node works for count=1 (individual) or count=50 (group)
+// container points to a tile or tilegroup (region)
 
 var nextNodeId = 1;
 
@@ -11,7 +12,7 @@ function createNode(templateId) {
     id: nextNodeId++,
     templateId: templateId,
     count: template.defaultCount || 1,
-    region: null,           // region ID this group occupies
+    container: null,        // tile or tilegroup (region) ID this node occupies
     center: { x: 0, y: 0 }, // rough center position (tile coords)
     spread: 1,              // radius in tiles (visual coverage)
     alive: true,

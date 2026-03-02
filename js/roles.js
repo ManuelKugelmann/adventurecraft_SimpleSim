@@ -152,7 +152,7 @@ function rest(node) {
 }
 
 function wanderRegion(node) {
-  var neighbors = World.walkableNeighbors(node.region);
+  var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return;
   // Random walkable neighbor
   var target = neighbors[Math.floor(Math.random() * neighbors.length)];
@@ -166,7 +166,7 @@ function wanderRegion(node) {
 function foodInRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var groups = World.groupsInRegion(node.region);
+  var groups = World.groupsInRegion(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (other.id === node.id || !other.alive) continue;
@@ -181,7 +181,7 @@ function foodInRegion(node) {
 function preyInRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var groups = World.groupsInRegion(node.region);
+  var groups = World.groupsInRegion(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (other.id === node.id || !other.alive) continue;
@@ -196,7 +196,7 @@ function preyInRegion(node) {
 function threatsInRegion(node) {
   var diet = node.traits.diet;
   if (!diet || !diet.eatenBy || diet.eatenBy.length === 0) return [];
-  var groups = World.groupsInRegion(node.region);
+  var groups = World.groupsInRegion(node.container);
   var threats = [];
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
@@ -211,7 +211,7 @@ function threatsInRegion(node) {
 function biggerThreatsInRegion(node) {
   var myCategory = TEMPLATES[node.templateId].category;
   var myStrength = TEMPLATES[node.templateId].strength;
-  var groups = World.groupsInRegion(node.region);
+  var groups = World.groupsInRegion(node.container);
   var threats = [];
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];

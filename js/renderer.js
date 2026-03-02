@@ -105,7 +105,7 @@ var Renderer = {
         for (var tx = x0; tx <= x1; tx++) {
           var idx = ty * w + tx;
           // Only tint tiles in the same region
-          if (World.regionOfTile[idx] === node.region) {
+          if (World.regionOfTile[idx] === node.container) {
             if (!tileGroups[idx]) tileGroups[idx] = [];
             tileGroups[idx].push({ node: node, tmpl: tmpl });
           }
@@ -227,7 +227,7 @@ var Renderer = {
     }
     var tmpl = TEMPLATES[n.templateId];
     var parts = ['<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
-      ' | count:' + n.count + ' | region:' + n.region];
+      ' | count:' + n.count + ' | container:' + n.container];
 
     if (n.traits.vitals) {
       var v = n.traits.vitals;
