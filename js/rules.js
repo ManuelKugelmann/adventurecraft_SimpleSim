@@ -7,7 +7,7 @@ var Rules = {
     var tmpl = TEMPLATES[node.templateId];
 
     // Items: no biology, just passive existence
-    if (tmpl.category === 'item') return;
+    if (tmpl.category === 'seed') return;
 
     var v = node.traits.vitals;
     if (!v) return;

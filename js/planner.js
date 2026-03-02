@@ -164,7 +164,8 @@ function findFoodRegion(node) {
       var other = groups[j];
       if (!other.alive || other.count <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
-      if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category === 'plant') {
+      var cat = otherTmpl.category;
+      if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
         return neighbors[i];
       }
     }
@@ -183,7 +184,8 @@ function findPreyRegion(node) {
       var other = groups[j];
       if (!other.alive || other.count <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
-      if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category !== 'plant') {
+      var cat = otherTmpl.category;
+      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed') {
         return neighbors[i];
       }
     }

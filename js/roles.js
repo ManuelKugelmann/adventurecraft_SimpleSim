@@ -319,7 +319,7 @@ function foodInRegion(node) {
     if (other.id === node.id || !other.alive) continue;
     var otherTmpl = TEMPLATES[other.templateId];
     var cat = otherTmpl.category;
-    if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'item') && other.count > 0) {
+    if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed') && other.count > 0) {
       return other;
     }
   }

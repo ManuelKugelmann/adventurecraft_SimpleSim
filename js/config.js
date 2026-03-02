@@ -100,7 +100,7 @@ var TEMPLATES = {
   },
   // --- Items (bulk nodes, no agency, no vitals) ---
   grains: {
-    category: 'item',
+    category: 'seed',
     symbol: '∴',
     color: '#c8b040',
     renderPriority: 3,
@@ -112,7 +112,7 @@ var TEMPLATES = {
     },
   },
   seeds: {
-    category: 'item',
+    category: 'seed',
     symbol: '·',
     color: '#a09050',
     renderPriority: 3,
@@ -134,7 +134,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 3 },
-      diet: { eats: ['plant', 'item'], eatenBy: ['carnivore', 'omnivore'] },
+      diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
@@ -149,7 +149,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 2 },
-      diet: { eats: ['plant', 'item'], eatenBy: ['carnivore', 'omnivore'] },
+      diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
@@ -165,7 +165,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 1 },
-      diet: { eats: ['plant', 'item', 'herbivore'], eatenBy: ['carnivore'] },
+      diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
@@ -180,7 +180,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80 },
       spatial: { speed: 1 },
-      diet: { eats: ['plant', 'item', 'herbivore', 'omnivore'], eatenBy: [] },
+      diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 20 },
     },
