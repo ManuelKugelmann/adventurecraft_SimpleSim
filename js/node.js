@@ -1,4 +1,5 @@
-// node.js — Unified Node class with trait composition
+// node.js — Unified Node with count, region, rough position
+// Same node works for count=1 (individual) or count=50 (group)
 
 var nextNodeId = 1;
 
@@ -9,11 +10,12 @@ function createNode(templateId) {
   var node = {
     id: nextNodeId++,
     templateId: templateId,
-    container: null,    // tile index — physical containment
-    parent: null,       // node id — organizational hierarchy (pack leader, herd)
+    count: template.defaultCount || 1,
+    region: null,           // region ID this group occupies
+    center: { x: 0, y: 0 }, // rough center position (tile coords)
+    spread: 1,              // radius in tiles (visual coverage)
     alive: true,
-    x: 0,
-    y: 0,
+    parent: null,           // organizational hierarchy
     traits: {},
   };
 
@@ -31,13 +33,10 @@ function createNode(templateId) {
     }
   }
 
+  computeSpread(node);
   return node;
 }
 
-function hasTrait(node, traitName) {
-  return node.traits.hasOwnProperty(traitName);
-}
-
-function getTrait(node, traitName) {
-  return node.traits[traitName] || null;
+function computeSpread(node) {
+  node.spread = Math.max(1, Math.ceil(node.count / CONFIG.SPREAD_DENSITY));
 }

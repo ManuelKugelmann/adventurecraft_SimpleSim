@@ -101,6 +101,7 @@ h1 {
   text-align: center;
   cursor: pointer;
   overflow: hidden;
+  border: none;
 }
 
 .cell:hover {

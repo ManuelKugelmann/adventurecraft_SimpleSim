@@ -8,28 +8,30 @@ Open `index.html` in a browser. No build step, no dependencies.
 
 ## Architecture
 
-Validates these adventurecraft primitives in a minimal food-chain sim:
+Multiscale region-graph simulation validating adventurecraft primitives:
 
-- **Unified Nodes** — every entity (plant, animal) is a Node with id, template, container, parent
-- **Trait composition** — behavior comes from composable traits (vitals, diet, agency, spatial, growth), not class hierarchy
-- **ContainerNode tree** — tiles contain entities; reverse-indexed for O(1) spatial queries
-- **Parent hierarchy** — group leaders linked via `node.parent` for organizational grouping
-- **Roles + reusable processes** — reactive priority-sorted rules handle 95% of behavior; multi-step processes (flee, findFood, huntPrey, findMate) are invoked when needed
-- **Initiative ordering** — world rules run early; actor actions run late, ordered by speed (initiative)
-- **Count-based grouping** — nearby same-species entities form groups; count drives behavioral modifiers (herd safety, pack hunting)
+- **Unified Nodes** — every entity (plant group, animal herd) is a Node with id, template, count, region, rough position
+- **Trait composition** — behavior from composable traits (vitals, diet, agency, spatial), not class hierarchy
+- **Region graph** — terrain partitioned into ~20-40 contiguous regions with adjacency graph; groups live in regions, move between connected regions
+- **Scale-agnostic rules** — same rule applies whether count=1 or count=50; count scales interaction magnitudes
+- **Compound statistics** — one aggregate outcome per group interaction (expected value + variance), not N individual rolls
+- **Rough position** — groups have center + spread; detailed tile positions only generated on split
+- **Merge/split on homogeneity** — same-species groups in same region with similar traits merge; oversized groups split
+- **Roles + reusable processes** — reactive priority-sorted rules handle most behavior; multi-step processes (flee, findFood, huntPrey) invoked when needed
+- **Initiative ordering** — world rules run early; actor actions run late, ordered by speed
 
 ## Species
 
-| Symbol | Species | Category | Speed |
-|--------|---------|----------|-------|
-| ♣ | Grass | plant | — |
-| ❀ | Bush | plant | — |
-| ♠ | Tree | plant | — |
-| ◆ | Rabbit | herbivore | 3 |
-| ◇ | Deer | herbivore | 2 |
-| ● | Pig | omnivore | 1 |
-| ■ | Bear | omnivore | 1 |
-| ▸ | Fox | carnivore | 3 |
-| ▲ | Wolf | carnivore | 2 |
+| Symbol | Species | Category | Default Count | Strength |
+|--------|---------|----------|---------------|----------|
+| ♣ | Grass | plant | 20 | — |
+| ❀ | Bush | plant | 12 | — |
+| ♠ | Tree | plant | 5 | — |
+| ◆ | Rabbit | herbivore | 10 | 1 |
+| ◇ | Deer | herbivore | 8 | 2 |
+| ● | Pig | omnivore | 6 | 2 |
+| ■ | Bear | omnivore | 3 | 6 |
+| ▸ | Fox | carnivore | 5 | 3 |
+| ▲ | Wolf | carnivore | 4 | 5 |
 
-Group members are shown with tinted background colors.
+Groups shown as icon + count at region center with tinted spread tiles.

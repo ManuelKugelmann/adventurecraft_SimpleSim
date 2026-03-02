@@ -40,7 +40,6 @@ var Simulation = {
       // Max speed: use requestAnimationFrame to batch ticks
       this.tickInterval = requestAnimationFrame(function loop() {
         if (!self.running) return;
-        // Run multiple ticks per frame at max speed
         for (var i = 0; i < 5; i++) {
           self.executeTick();
         }
@@ -66,8 +65,13 @@ var Simulation = {
       Rules.biology(node);
     });
 
+    // === Merge same-species groups in same region ===
+    // === Split oversized groups ===
+    if (World.tick % 5 === 0) {
+      Groups.update();
+    }
+
     // === LATE: Actor actions, ordered by initiative ===
-    // Collect actors, sort by speed (initiative) descending — faster creatures act first
     var actors = [];
     World.nodes.forEach(function(node) {
       if (node.alive && node.traits.agency) actors.push(node);
@@ -79,30 +83,13 @@ var Simulation = {
       return a.id - b.id; // stable tiebreak
     });
 
-    // Action phase: each actor evaluates role and acts
     for (var i = 0; i < actors.length; i++) {
       if (actors[i].alive) {
         Roles.evaluate(actors[i]);
       }
     }
 
-    // Cleanup
+    // === Cleanup: remove dead groups ===
     World.removeDeadNodes();
-
-    // Grouping (every 5 ticks)
-    if (World.tick % 5 === 0) {
-      Groups.update();
-    }
   },
 };
-
-// Fisher-Yates shuffle
-function shuffleArray(arr) {
-  for (var i = arr.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var temp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = temp;
-  }
-  return arr;
-}

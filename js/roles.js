@@ -1,159 +1,149 @@
-// roles.js — Role definitions with priority-sorted reactive rules
-// Roles reference reusable processes (defined in planner.js) for multi-step behavior
+// roles.js — Region-scale role actions
+// All perception and actions operate on regions, not tiles
 
 var Roles = {
-  // Evaluate the active role for a node: iterate rules by priority, first match fires
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
 
-    // If currently executing a process, continue it
+    // If executing a process, continue it
     if (agency.activePlan) {
       Planner.executeStep(node);
       return;
     }
 
-    var roleName = agency.activeRole;
-    var roleDef = ROLE_DEFS[roleName];
+    var roleDef = ROLE_DEFS[agency.activeRole];
     if (!roleDef) return;
 
     for (var i = 0; i < roleDef.length; i++) {
-      var rule = roleDef[i];
-      if (rule.condition(node)) {
-        rule.action(node);
+      if (roleDef[i].condition(node)) {
+        roleDef[i].action(node);
         return;
       }
     }
   },
 };
 
-// Role definitions: arrays of {condition, action} sorted by priority (index 0 = highest)
 var ROLE_DEFS = {
   grazer: [
-    // Flee from predators
     { name: 'flee',
-      condition: function(n) { return nearbyThreats(n).length > 0; },
+      condition: function(n) { return threatsInRegion(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
-    // Eat adjacent food when hungry
-    { name: 'eat',
-      condition: function(n) { return n.traits.vitals.hunger > 40 && adjacentFood(n); },
-      action: function(n) { eatAdjacent(n); }
+    { name: 'graze',
+      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInRegion(n); },
+      action: function(n) { graze(n); }
     },
-    // Seek food when very hungry (multi-step process)
     { name: 'seekFood',
       condition: function(n) { return n.traits.vitals.hunger > 55; },
       action: function(n) { Planner.start(n, 'findFood'); }
     },
-    // Reproduce when urge is high
-    { name: 'reproduce',
-      condition: function(n) { return n.traits.vitals.reproUrge > 60 && n.traits.vitals.hunger < 60; },
-      action: function(n) { Planner.start(n, 'findMate'); }
-    },
-    // Rest when low energy
     { name: 'rest',
       condition: function(n) { return n.traits.vitals.energy < 20; },
       action: function(n) { rest(n); }
     },
-    // Default: wander
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wander(n); }
+      action: function(n) { wanderRegion(n); }
     },
   ],
 
   hunter: [
-    // Flee from bigger threats
     { name: 'flee',
-      condition: function(n) { return nearbyBiggerThreats(n).length > 0; },
+      condition: function(n) { return biggerThreatsInRegion(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
-    // Eat adjacent kill
-    { name: 'eat',
-      condition: function(n) { return n.traits.vitals.hunger > 20 && adjacentPrey(n); },
-      action: function(n) { attackAndEat(n); }
-    },
-    // Hunt when hungry (multi-step process)
     { name: 'hunt',
-      condition: function(n) { return n.traits.vitals.hunger > 40; },
+      condition: function(n) { return n.traits.vitals.hunger > 30 && preyInRegion(n); },
+      action: function(n) { hunt(n); }
+    },
+    { name: 'seekPrey',
+      condition: function(n) { return n.traits.vitals.hunger > 45; },
       action: function(n) { Planner.start(n, 'huntPrey'); }
     },
-    // Reproduce
-    { name: 'reproduce',
-      condition: function(n) { return n.traits.vitals.reproUrge > 60 && n.traits.vitals.hunger < 50; },
-      action: function(n) { Planner.start(n, 'findMate'); }
-    },
-    // Rest
     { name: 'rest',
       condition: function(n) { return n.traits.vitals.energy < 20; },
       action: function(n) { rest(n); }
     },
-    // Wander
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wander(n); }
+      action: function(n) { wanderRegion(n); }
     },
   ],
 
   forager: [
-    // Flee from bigger threats
     { name: 'flee',
-      condition: function(n) { return nearbyBiggerThreats(n).length > 0; },
+      condition: function(n) { return biggerThreatsInRegion(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
-    // Eat adjacent food (plant or small prey)
-    { name: 'eat',
-      condition: function(n) {
-        return n.traits.vitals.hunger > 30 && (adjacentFood(n) || adjacentPrey(n));
-      },
-      action: function(n) {
-        if (adjacentPrey(n) && n.traits.vitals.hunger > 50) {
-          attackAndEat(n);
-        } else if (adjacentFood(n)) {
-          eatAdjacent(n);
-        } else {
-          attackAndEat(n);
-        }
-      }
+    { name: 'hunt',
+      condition: function(n) { return n.traits.vitals.hunger > 50 && preyInRegion(n); },
+      action: function(n) { hunt(n); }
     },
-    // Seek food
+    { name: 'graze',
+      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInRegion(n); },
+      action: function(n) { graze(n); }
+    },
     { name: 'seekFood',
       condition: function(n) { return n.traits.vitals.hunger > 50; },
       action: function(n) { Planner.start(n, 'findFood'); }
     },
-    // Reproduce
-    { name: 'reproduce',
-      condition: function(n) { return n.traits.vitals.reproUrge > 60 && n.traits.vitals.hunger < 60; },
-      action: function(n) { Planner.start(n, 'findMate'); }
-    },
-    // Rest
     { name: 'rest',
       condition: function(n) { return n.traits.vitals.energy < 20; },
       action: function(n) { rest(n); }
     },
-    // Wander
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wander(n); }
+      action: function(n) { wanderRegion(n); }
     },
   ],
 };
 
-// --- Immediate actions (single-tick) ---
+// --- Region-scale actions ---
 
-function wander(node) {
-  var dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-  shuffleArray(dirs);
-  for (var i = 0; i < dirs.length; i++) {
-    var nx = node.x + dirs[i][0];
-    var ny = node.y + dirs[i][1];
-    if (World.isWalkable(nx, ny)) {
-      World.moveNode(node, nx, ny);
-      node.traits.vitals.energy -= 0.5;
-      node.traits.agency.lastAction = 'wander';
-      return;
-    }
-  }
+function graze(node) {
+  var food = foodInRegion(node);
+  if (!food) return;
+
+  // Compound: group feeds proportionally
+  var eaten = Math.min(food.count, node.count * CONFIG.FEED_RATE);
+  eaten = Math.max(1, Math.round(eaten));
+  food.count -= eaten;
+  if (food.count <= 0) food.alive = false;
+
+  node.traits.vitals.hunger -= eaten * CONFIG.FOOD_PER_PLANT / Math.max(1, node.count);
+  node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+  node.traits.vitals.energy -= 0.5;
+  node.traits.agency.lastAction = 'graze';
+}
+
+function hunt(node) {
+  var prey = preyInRegion(node);
+  if (!prey) return;
+
+  // Compound combat: one aggregate outcome
+  var myStrength = node.count * TEMPLATES[node.templateId].strength;
+  var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
+  var ratio = myStrength / Math.max(preyStrength, 1);
+
+  var expectedKills = node.count * CONFIG.KILL_RATE * ratio;
+  var variance = expectedKills * 0.2;
+  var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
+  killed = Math.max(0, Math.min(killed, prey.count));
+
+  prey.count -= killed;
+  if (prey.count <= 0) prey.alive = false;
+
+  // Predator feeds
+  node.traits.vitals.hunger -= killed * CONFIG.FOOD_PER_PREY / Math.max(1, node.count);
+  node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+
+  // Counter-attack: predator losses
+  var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
+  node.count -= Math.min(predatorLosses, node.count - 1);
+
+  node.traits.vitals.energy -= 3;
+  node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
 }
 
 function rest(node) {
@@ -161,104 +151,74 @@ function rest(node) {
   node.traits.agency.lastAction = 'rest';
 }
 
-function adjacentFood(node) {
+function wanderRegion(node) {
+  var neighbors = World.walkableNeighbors(node.region);
+  if (neighbors.length === 0) return;
+  // Random walkable neighbor
+  var target = neighbors[Math.floor(Math.random() * neighbors.length)];
+  World.moveGroup(node, target);
+  node.traits.vitals.energy -= 0.5;
+  node.traits.agency.lastAction = 'wander';
+}
+
+// --- Region-scale perception ---
+
+function foodInRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var dirs = [[0,0],[-1,0],[1,0],[0,-1],[0,1]];
-  for (var d = 0; d < dirs.length; d++) {
-    var ax = node.x + dirs[d][0], ay = node.y + dirs[d][1];
-    var nearby = World.nodesAt(ax, ay);
-    for (var i = 0; i < nearby.length; i++) {
-      var other = nearby[i];
-      if (other.id === node.id) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category === 'plant') {
-        if (other.traits.growth && other.traits.growth.stage >= 1) {
-          return other;
-        }
-      }
+  var groups = World.groupsInRegion(node.region);
+  for (var i = 0; i < groups.length; i++) {
+    var other = groups[i];
+    if (other.id === node.id || !other.alive) continue;
+    var otherTmpl = TEMPLATES[other.templateId];
+    if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category === 'plant' && other.count > 0) {
+      return other;
     }
   }
   return null;
 }
 
-function adjacentPrey(node) {
+function preyInRegion(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var dirs = [[0,0],[-1,0],[1,0],[0,-1],[0,1]];
-  for (var d = 0; d < dirs.length; d++) {
-    var ax = node.x + dirs[d][0], ay = node.y + dirs[d][1];
-    var nearby = World.nodesAt(ax, ay);
-    for (var i = 0; i < nearby.length; i++) {
-      var other = nearby[i];
-      if (other.id === node.id) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category !== 'plant') {
-        return other;
-      }
+  var groups = World.groupsInRegion(node.region);
+  for (var i = 0; i < groups.length; i++) {
+    var other = groups[i];
+    if (other.id === node.id || !other.alive) continue;
+    var otherTmpl = TEMPLATES[other.templateId];
+    if (diet.eats.indexOf(otherTmpl.category) >= 0 && otherTmpl.category !== 'plant' && other.count > 0) {
+      return other;
     }
   }
   return null;
 }
 
-function eatAdjacent(node) {
-  var food = adjacentFood(node);
-  if (!food) return;
-  var foodVal = FOOD_VALUES[food.templateId] || 15;
-  node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger - foodVal);
-  food.alive = false;
-  node.traits.agency.lastAction = 'eat';
-}
-
-function attackAndEat(node) {
-  var prey = adjacentPrey(node);
-  if (!prey) return;
-  var atk = (node.traits.combat ? node.traits.combat.attack : 2);
-  var def = (prey.traits.combat ? prey.traits.combat.defense : 0);
-  var dmg = Math.max(1, atk - def);
-  prey.traits.vitals.hp -= dmg;
-  node.traits.vitals.energy -= 3;
-  if (prey.traits.vitals.hp <= 0) {
-    prey.alive = false;
-    var foodVal = FOOD_VALUES[prey.templateId] || 30;
-    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger - foodVal);
-    node.traits.agency.lastAction = 'kill+eat';
-  } else {
-    node.traits.agency.lastAction = 'attack';
-  }
-}
-
-// --- Perception helpers ---
-
-function nearbyThreats(node) {
-  var perception = node.traits.spatial ? node.traits.spatial.perception : 3;
+function threatsInRegion(node) {
   var diet = node.traits.diet;
   if (!diet || !diet.eatenBy || diet.eatenBy.length === 0) return [];
-
-  var nearby = World.nodesInRadius(node.x, node.y, perception);
+  var groups = World.groupsInRegion(node.region);
   var threats = [];
-  for (var i = 0; i < nearby.length; i++) {
-    var other = nearby[i];
+  for (var i = 0; i < groups.length; i++) {
+    var other = groups[i];
     if (other.id === node.id || !other.traits.agency) continue;
-    var otherTmpl = TEMPLATES[other.templateId];
-    if (diet.eatenBy.indexOf(otherTmpl.category) >= 0) {
+    if (diet.eatenBy.indexOf(TEMPLATES[other.templateId].category) >= 0) {
       threats.push(other);
     }
   }
   return threats;
 }
 
-function nearbyBiggerThreats(node) {
-  var perception = node.traits.spatial ? node.traits.spatial.perception : 3;
-  var myHp = node.traits.vitals.maxHp;
-  var nearby = World.nodesInRadius(node.x, node.y, perception);
+function biggerThreatsInRegion(node) {
+  var myCategory = TEMPLATES[node.templateId].category;
+  var myStrength = TEMPLATES[node.templateId].strength;
+  var groups = World.groupsInRegion(node.region);
   var threats = [];
-  for (var i = 0; i < nearby.length; i++) {
-    var other = nearby[i];
+  for (var i = 0; i < groups.length; i++) {
+    var other = groups[i];
     if (other.id === node.id || !other.traits.agency) continue;
     var otherDiet = other.traits.diet;
-    var myTmpl = TEMPLATES[node.templateId];
-    if (otherDiet && otherDiet.eats.indexOf(myTmpl.category) >= 0 && other.traits.vitals.maxHp > myHp) {
+    if (otherDiet && otherDiet.eats.indexOf(myCategory) >= 0 &&
+        TEMPLATES[other.templateId].strength > myStrength) {
       threats.push(other);
     }
   }
