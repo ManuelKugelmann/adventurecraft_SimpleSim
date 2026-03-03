@@ -356,6 +356,9 @@ var World = {
       }
     }
 
+    // Stones: spread across random walkable regions
+    spawnGroups('stone', CONFIG.INITIAL_STONE);
+
     spawnGroups('rabbit', CONFIG.INITIAL_RABBIT);
     spawnGroups('deer', CONFIG.INITIAL_DEER);
     spawnGroups('pig', CONFIG.INITIAL_PIG);

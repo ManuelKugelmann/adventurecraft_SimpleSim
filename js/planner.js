@@ -79,7 +79,10 @@ var PROCESSES = {
       return {
         steps: [
           { exec: function(n) {
+            if (stoneMoveBlocked(n)) return 'fail';
+            tryPickup(n);
             World.moveGroup(n, target);
+            dropCargo(n);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-food';
             return 'done';
@@ -102,7 +105,10 @@ var PROCESSES = {
       return {
         steps: [
           { exec: function(n) {
+            if (stoneMoveBlocked(n)) return 'fail';
+            tryPickup(n);
             World.moveGroup(n, target);
+            dropCargo(n);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-prey';
             return 'done';
@@ -146,7 +152,10 @@ function fleeRegion(node) {
   }
 
   if (best !== null) {
+    if (stoneMoveBlocked(node)) return 'done';
+    tryPickup(node);
     World.moveGroup(node, best);
+    dropCargo(node);
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
   }
@@ -185,7 +194,7 @@ function findPreyRegion(node) {
       if (!other.alive || other.count <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
       var cat = otherTmpl.category;
-      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed') {
+      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
         return neighbors[i];
       }
     }

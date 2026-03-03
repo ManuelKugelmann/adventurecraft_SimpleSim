@@ -1,13 +1,13 @@
 // rules.js — Scale-agnostic biology rules
 // Same rules apply to count=1 or count=50. Count scales interaction magnitudes.
-// Items (grains, seeds) have no vitals — they just exist as bulk nodes.
+// Items (grains, seeds, stones) have no vitals — they just exist as bulk nodes.
 
 var Rules = {
   biology: function(node) {
     var tmpl = TEMPLATES[node.templateId];
 
     // Items: no biology, just passive existence
-    if (tmpl.category === 'seed') return;
+    if (tmpl.category === 'seed' || tmpl.category === 'item') return;
 
     var v = node.traits.vitals;
     if (!v) return;

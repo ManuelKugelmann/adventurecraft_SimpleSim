@@ -96,7 +96,7 @@ var Roles = {
         var other = groups[i];
         if (other.id === node.id || !other.alive) continue;
         var cat = TEMPLATES[other.templateId].category;
-        if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'item') {
+        if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
           preyTypes++;
         }
       }
@@ -300,10 +300,13 @@ function rest(node) {
 }
 
 function wanderRegion(node) {
+  if (stoneMoveBlocked(node)) return;
   var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return;
   var target = neighbors[Math.floor(Math.random() * neighbors.length)];
+  tryPickup(node);
   World.moveGroup(node, target);
+  dropCargo(node);
   node.traits.vitals.energy -= 0.5;
   node.traits.agency.lastAction = 'wander';
 }
@@ -335,7 +338,7 @@ function preyInRegion(node) {
     if (other.id === node.id || !other.alive) continue;
     var otherTmpl = TEMPLATES[other.templateId];
     var cat = otherTmpl.category;
-    if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'item' && other.count > 0) {
+    if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item' && other.count > 0) {
       return other;
     }
   }
@@ -372,4 +375,71 @@ function biggerThreatsInRegion(node) {
     }
   }
   return threats;
+}
+
+// --- Transport: pickup / drop cargo ---
+
+function tryPickup(node) {
+  var cargo = node.traits.cargo;
+  if (!cargo || cargo.carrying) return;
+
+  var groups = World.groupsInRegion(node.container);
+  for (var i = 0; i < groups.length; i++) {
+    var other = groups[i];
+    if (!other.alive || other.count <= 0) continue;
+    var cat = TEMPLATES[other.templateId].category;
+    var chance = 0;
+    if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
+    else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
+    if (chance > 0 && Math.random() < chance) {
+      var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
+      other.count -= amount;
+      if (other.count <= 0) other.alive = false;
+      cargo.carrying = other.templateId;
+      cargo.amount = amount;
+      return;
+    }
+  }
+}
+
+function dropCargo(node) {
+  var cargo = node.traits.cargo;
+  if (!cargo || !cargo.carrying) return;
+  spawnItem(cargo.carrying, cargo.amount, node.container, node.center);
+  cargo.carrying = null;
+  cargo.amount = 0;
+}
+
+// --- Stone density: slowdown / blocking ---
+
+function stonesInRegion(regionId) {
+  var groups = World.groupsInRegion(regionId);
+  var total = 0;
+  for (var i = 0; i < groups.length; i++) {
+    if (groups[i].alive && TEMPLATES[groups[i].templateId].category === 'item') {
+      total += groups[i].count;
+    }
+  }
+  return total;
+}
+
+function stoneMoveBlocked(node) {
+  var region = World.regions.get(node.container);
+  if (!region) return false;
+  var density = stonesInRegion(node.container) / region.tileCount;
+  if (density >= CONFIG.STONE_BLOCK_PER_TILE) {
+    node.traits.vitals.energy -= 0.5;
+    node.traits.agency.lastAction = 'blocked-stones';
+    return true;
+  }
+  if (density >= CONFIG.STONE_SLOW_PER_TILE) {
+    var slowChance = (density - CONFIG.STONE_SLOW_PER_TILE) /
+                     (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
+    if (Math.random() < slowChance) {
+      node.traits.vitals.energy -= 0.5;
+      node.traits.agency.lastAction = 'slowed-stones';
+      return true;
+    }
+  }
+  return false;
 }

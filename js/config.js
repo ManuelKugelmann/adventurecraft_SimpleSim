@@ -48,6 +48,18 @@ var CONFIG = {
 
   // Spread: how many tiles a group occupies visually = ceil(count / SPREAD_DENSITY)
   SPREAD_DENSITY: 4,       // members per tile of spread
+
+  // Transport: items carried between regions during movement
+  CARRY_SEED_CHANCE: 0.3,    // probability of picking up seeds when moving
+  CARRY_STONE_CHANCE: 0.15,  // probability of picking up stones when moving
+  CARRY_FRACTION: 0.1,       // fraction of item count carried per trip
+
+  // Stones: movement penalty when dense in a region
+  STONE_SLOW_PER_TILE: 3,    // stones per tile before slowdown begins
+  STONE_BLOCK_PER_TILE: 8,   // stones per tile = impassable
+
+  // Initial stone groups
+  INITIAL_STONE: 3,
 };
 
 var TILE_TYPES = {
@@ -123,6 +135,19 @@ var TEMPLATES = {
       group: { mergeThreshold: 999, maxSize: 200 },
     },
   },
+  // --- Stones (bulk nodes, no agency, no vitals, not edible) ---
+  stone: {
+    category: 'item',
+    symbol: '□',
+    color: '#808080',
+    renderPriority: 3,
+    defaultCount: 15,
+    strength: 0,
+    traits: {
+      diet: { eats: [], eatenBy: [] },
+      group: { mergeThreshold: 999, maxSize: 500 },
+    },
+  },
   // --- Herbivores ---
   rabbit: {
     category: 'herbivore',
@@ -136,6 +161,7 @@ var TEMPLATES = {
       spatial: { speed: 3 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -151,6 +177,7 @@ var TEMPLATES = {
       spatial: { speed: 2 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -167,6 +194,7 @@ var TEMPLATES = {
       spatial: { speed: 1 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -182,6 +210,7 @@ var TEMPLATES = {
       spatial: { speed: 1 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 20 },
     },
   },
@@ -198,6 +227,7 @@ var TEMPLATES = {
       spatial: { speed: 3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
       agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 30 },
     },
   },
@@ -213,6 +243,7 @@ var TEMPLATES = {
       spatial: { speed: 2 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      cargo: { carrying: null, amount: 0 },
       group: { mergeThreshold: 15, maxSize: 25 },
     },
   },
