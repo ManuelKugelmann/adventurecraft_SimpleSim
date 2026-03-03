@@ -1,15 +1,16 @@
 // world.js — Tile grid + Region graph + Group containment
-// Tiles = finest scale (rendering + terrain). Regions = coarse sim scale. Groups live in regions.
+// All entities are nodes. Two hierarchies:
+//   parent:    grouping (multiscale sim) — tiles parented to regions, groups parented to regions
+//   contains/containedBy: structural (transport) — animals containing carried items
 
 var World = {
   width: 0,
   height: 0,
-  tiles: null,           // flat array of tile objects (80x80)
-  regionOfTile: null,    // flat array: tileIndex → regionId
-  regions: null,         // Map<regionId, Region>
-  nodes: null,           // Map<nodeId, Node> (group entities)
-  byRegion: null,        // Map<regionId, Set<nodeId>>
-  nextRegionId: 1,
+  tiles: null,           // flat array of tile nodes (80x80)
+  regionOfTile: null,    // flat array: tileIndex → regionId (node ID)
+  regions: null,         // Map<regionId, regionNode>
+  nodes: null,           // Map<nodeId, Node> (all nodes: tiles, regions, groups)
+  byRegion: null,        // Map<regionId, Set<nodeId>> (groups index)
   tick: 0,
 
   init: function(w, h) {
@@ -20,18 +21,18 @@ var World = {
     this.regions = new Map();
     this.nodes = new Map();
     this.byRegion = new Map();
-    this.nextRegionId = 1;
     this.tick = 0;
     nextNodeId = 1;
 
-    // Initialize all tiles as grass
+    // Initialize all tiles as grass nodes
     for (var i = 0; i < w * h; i++) {
-      this.tiles[i] = {
-        type: 'grass',
-        x: i % w,
-        y: Math.floor(i / w),
-        fertility: 0.5 + Math.random() * 0.5,
-      };
+      var tile = createNode('tile_grass');
+      tile.type = 'grass';
+      tile.center.x = i % w;
+      tile.center.y = Math.floor(i / w);
+      tile.fertility = 0.5 + Math.random() * 0.5;
+      this.tiles[i] = tile;
+      this.nodes.set(tile.id, tile);
       this.regionOfTile[i] = -1;
     }
 
@@ -102,6 +103,7 @@ var World = {
     var node = createNode(templateId);
     var region = this.regions.get(regionId);
     node.container = regionId;
+    node.parent = regionId;
     node.center.x = region.center.x;
     node.center.y = region.center.y;
     computeSpread(node);
@@ -119,11 +121,17 @@ var World = {
     }
     // Add to new region
     node.container = newRegionId;
+    node.parent = newRegionId;
     var region = this.regions.get(newRegionId);
     node.center.x = region.center.x;
     node.center.y = region.center.y;
     if (!this.byRegion.has(newRegionId)) this.byRegion.set(newRegionId, new Set());
     this.byRegion.get(newRegionId).add(node.id);
+    // Contained items follow carrier's region
+    for (var i = 0; i < node.contains.length; i++) {
+      var item = this.nodes.get(node.contains[i]);
+      if (item) item.container = newRegionId;
+    }
   },
 
   removeGroup: function(node) {
@@ -138,7 +146,12 @@ var World = {
   removeDeadNodes: function() {
     var toRemove = [];
     this.nodes.forEach(function(node) {
-      if (!node.alive || node.count <= 0) toRemove.push(node);
+      if (!node.alive || node.count <= 0) {
+        var tmpl = TEMPLATES[node.templateId];
+        // Don't remove structural nodes (terrain, regions)
+        if (tmpl.category === 'terrain' || tmpl.category === 'region') return;
+        toRemove.push(node);
+      }
     });
     for (var i = 0; i < toRemove.length; i++) {
       this.removeGroup(toRemove[i]);
@@ -162,6 +175,7 @@ var World = {
         var tile = self.tileAt(px, py);
         if (!tile) continue;
         tile.type = type;
+        tile.templateId = 'tile_' + type;
         tile.fertility = type === 'water' ? 0 : (type === 'rock' ? 0.1 : tile.fertility);
         placed++;
         var dirs = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -197,6 +211,7 @@ var World = {
           var t = this.tileAt(x + dirs[d][0], y + dirs[d][1]);
           if (t && t.type === 'grass') {
             t.type = 'dirt';
+            t.templateId = 'tile_dirt';
             t.fertility = 0.3 + Math.random() * 0.2;
           }
         }
@@ -214,14 +229,16 @@ var World = {
     function floodRegion(startIdx) {
       var startTile = self.tiles[startIdx];
       var type = startTile.type;
-      var regionId = self.nextRegionId++;
-      var tiles = [];
+      var regionNode = createNode('region');
+      var regionId = regionNode.id;
+      regionNode.type = type;
+      var tileIndices = [];
       var queue = [startIdx];
       assigned[startIdx] = 1;
 
       while (queue.length > 0) {
         var idx = queue.shift();
-        tiles.push(idx);
+        tileIndices.push(idx);
         var tx = idx % self.width;
         var ty = Math.floor(idx / self.width);
         var dirs = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -238,43 +255,50 @@ var World = {
       }
 
       // Split if too large
-      if (tiles.length > CONFIG.REGION_MAX_SIZE) {
-        // Just take first chunk, leave rest for another pass
-        var keep = tiles.slice(0, CONFIG.REGION_MAX_SIZE);
-        for (var i = CONFIG.REGION_MAX_SIZE; i < tiles.length; i++) {
-          assigned[tiles[i]] = 0; // unassign overflow
+      if (tileIndices.length > CONFIG.REGION_MAX_SIZE) {
+        var keep = tileIndices.slice(0, CONFIG.REGION_MAX_SIZE);
+        for (var i = CONFIG.REGION_MAX_SIZE; i < tileIndices.length; i++) {
+          assigned[tileIndices[i]] = 0;
         }
-        tiles = keep;
+        tileIndices = keep;
       }
 
       // Compute center
       var cx = 0, cy = 0;
       var totalFertility = 0;
-      for (var i = 0; i < tiles.length; i++) {
-        var ti = tiles[i];
+      for (var i = 0; i < tileIndices.length; i++) {
+        var ti = tileIndices[i];
         cx += ti % self.width;
         cy += Math.floor(ti / self.width);
         totalFertility += self.tiles[ti].fertility;
       }
-      cx = Math.round(cx / tiles.length);
-      cy = Math.round(cy / tiles.length);
+      cx = Math.round(cx / tileIndices.length);
+      cy = Math.round(cy / tileIndices.length);
 
-      var region = {
-        id: regionId,
-        type: type,
-        tiles: tiles,
-        tileCount: tiles.length,
-        center: { x: cx, y: cy },
-        neighbors: [],
-        fertility: totalFertility / tiles.length,
-      };
+      // Set region node properties
+      regionNode.count = tileIndices.length;
+      regionNode.center.x = cx;
+      regionNode.center.y = cy;
+      regionNode.tiles = tileIndices;
+      regionNode.tileCount = tileIndices.length;
+      regionNode.neighbors = [];
+      regionNode.fertility = totalFertility / tileIndices.length;
+      computeSpread(regionNode);
 
-      self.regions.set(regionId, region);
+      // Grouping hierarchy: tiles parented to region
+      for (var i = 0; i < tileIndices.length; i++) {
+        var tileNode = self.tiles[tileIndices[i]];
+        tileNode.parent = regionId;
+        tileNode.container = regionId;
+      }
+
+      self.regions.set(regionId, regionNode);
+      self.nodes.set(regionId, regionNode);
       self.byRegion.set(regionId, new Set());
 
-      // Tag tiles
-      for (var i = 0; i < tiles.length; i++) {
-        self.regionOfTile[tiles[i]] = regionId;
+      // Tag tiles with region index
+      for (var i = 0; i < tileIndices.length; i++) {
+        self.regionOfTile[tileIndices[i]] = regionId;
       }
     }
 

@@ -1,8 +1,8 @@
 // node.js — Unified Node with count, container, rough position
-// Every node has a count. Nodes with a group trait merge/split on homogeneity.
-// Items (grains, seeds, stones) are nodes too — just no agency.
-// container points to a tile or tilegroup (region).
-// contains/containedBy form a containment chain: region → animal → items
+// Everything is a node: tiles, regions, plants, animals, items.
+// Two hierarchies on every node:
+//   parent:              grouping (multiscale sim) — tiles→region, groups→region
+//   contains/containedBy: structural (transport)   — animals carrying items
 
 var nextNodeId = 1;
 

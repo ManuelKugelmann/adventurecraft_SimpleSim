@@ -89,6 +89,7 @@ var Groups = {
       var newNode = createNode(node.templateId);
       newNode.count = splitCount;
       newNode.container = targetRegion;
+      newNode.parent = targetRegion;
       var region = World.regions.get(targetRegion);
       newNode.center.x = region.center.x;
       newNode.center.y = region.center.y;

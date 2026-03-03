@@ -95,8 +95,11 @@ var Renderer = {
     // Build a map: tileIndex → list of groups whose spread covers this tile
     var tileGroups = {};  // tileIndex → [{node, tmpl}]
     World.nodes.forEach(function(node) {
-      if (!node.alive || node.containedBy) return;
+      if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
+      // Skip structural nodes (terrain tiles, regions) and carried items
+      if (tmpl.category === 'terrain' || tmpl.category === 'region') return;
+      if (node.containedBy) return;
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
       var x0 = Math.max(0, cx - r), x1 = Math.min(w - 1, cx + r);
@@ -132,7 +135,15 @@ var Renderer = {
         // Is this the center tile of the best group? Show icon + count
         var node = best.node;
         if (Math.abs(node.center.x - (i % w)) <= 0 && Math.abs(node.center.y - Math.floor(i / w)) <= 0) {
-          span.textContent = best.tmpl.symbol + node.count;
+          var label = best.tmpl.symbol + node.count;
+          // Show contained items small on top of carrier
+          for (var ci = 0; ci < node.contains.length; ci++) {
+            var carried = World.nodes.get(node.contains[ci]);
+            if (carried && carried.alive) {
+              label += TEMPLATES[carried.templateId].symbol;
+            }
+          }
+          span.textContent = label;
           span.style.color = best.tmpl.color;
         } else {
           // Spread tile: just tint
@@ -181,7 +192,10 @@ var Renderer = {
 
     World.nodes.forEach(function(node) {
       if (node.alive) {
-        counts[node.templateId] = (counts[node.templateId] || 0) + node.count;
+        var tmpl = TEMPLATES[node.templateId];
+        if (tmpl.category !== 'terrain' && tmpl.category !== 'region') {
+          counts[node.templateId] = (counts[node.templateId] || 0) + node.count;
+        }
       }
     });
 
@@ -189,6 +203,7 @@ var Renderer = {
     for (var i = 0; i < templateNames.length; i++) {
       var name = templateNames[i];
       var tmpl = TEMPLATES[name];
+      if (tmpl.category === 'terrain' || tmpl.category === 'region') continue;
       parts.push('<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span>' + counts[name]);
     }
     this.statsEl.innerHTML = parts.join(' ');

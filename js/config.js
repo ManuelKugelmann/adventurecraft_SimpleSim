@@ -70,6 +70,13 @@ var TILE_TYPES = {
 };
 
 var TEMPLATES = {
+  // --- Terrain (tile nodes, structural — parented to regions) ---
+  tile_grass: { category: 'terrain', symbol: '·', color: '#4a7c3f', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
+  tile_water: { category: 'terrain', symbol: '~', color: '#3a6ea5', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
+  tile_dirt:  { category: 'terrain', symbol: ',', color: '#8b7355', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
+  tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
+  // --- Region (structural container for grouping hierarchy) ---
+  region: { category: 'region', symbol: 'R', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
   grass: {
     category: 'plant',

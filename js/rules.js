@@ -77,6 +77,7 @@ function spawnItem(templateId, count, containerId, center) {
   var node = createNode(templateId);
   node.count = count;
   node.container = containerId;
+  node.parent = containerId;
   node.center.x = center.x;
   node.center.y = center.y;
   computeSpread(node);
