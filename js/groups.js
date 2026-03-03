@@ -46,6 +46,15 @@ var Groups = {
             va.hunger = (va.hunger * a.count + vb.hunger * b.count) / totalCount;
             va.energy = (va.energy * a.count + vb.energy * b.count) / totalCount;
             a.count = totalCount;
+            // Transfer contained items from b to a
+            for (var ci = 0; ci < b.contains.length; ci++) {
+              var item = World.nodes.get(b.contains[ci]);
+              if (item && item.alive) {
+                item.containedBy = a.id;
+                a.contains.push(item.id);
+              }
+            }
+            b.contains = [];
             computeSpread(a);
             World.removeGroup(b);
           }

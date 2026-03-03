@@ -82,7 +82,7 @@ var PROCESSES = {
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
             World.moveGroup(n, target);
-            dropCargo(n);
+            dropContained(n);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-food';
             return 'done';
@@ -108,7 +108,7 @@ var PROCESSES = {
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
             World.moveGroup(n, target);
-            dropCargo(n);
+            dropContained(n);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-prey';
             return 'done';
@@ -155,7 +155,7 @@ function fleeRegion(node) {
     if (stoneMoveBlocked(node)) return 'done';
     tryPickup(node);
     World.moveGroup(node, best);
-    dropCargo(node);
+    dropContained(node);
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
   }

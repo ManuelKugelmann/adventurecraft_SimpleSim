@@ -306,7 +306,7 @@ function wanderRegion(node) {
   var target = neighbors[Math.floor(Math.random() * neighbors.length)];
   tryPickup(node);
   World.moveGroup(node, target);
-  dropCargo(node);
+  dropContained(node);
   node.traits.vitals.energy -= 0.5;
   node.traits.agency.lastAction = 'wander';
 }
@@ -377,37 +377,60 @@ function biggerThreatsInRegion(node) {
   return threats;
 }
 
-// --- Transport: pickup / drop cargo ---
+// --- Transport: pickup / drop via contains/containedBy chain ---
 
 function tryPickup(node) {
-  var cargo = node.traits.cargo;
-  if (!cargo || cargo.carrying) return;
-
   var groups = World.groupsInRegion(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
-    if (!other.alive || other.count <= 0) continue;
+    if (!other.alive || other.count <= 0 || other.containedBy) continue;
     var cat = TEMPLATES[other.templateId].category;
     var chance = 0;
     if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
     else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
     if (chance > 0 && Math.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
-      other.count -= amount;
-      if (other.count <= 0) other.alive = false;
-      cargo.carrying = other.templateId;
-      cargo.amount = amount;
-      return;
+      if (amount >= other.count) {
+        // Take the whole node
+        containItem(node, other);
+      } else {
+        // Split off a portion into a new node
+        other.count -= amount;
+        var carried = createNode(other.templateId);
+        carried.count = amount;
+        carried.container = node.container;
+        carried.center.x = node.center.x;
+        carried.center.y = node.center.y;
+        computeSpread(carried);
+        World.nodes.set(carried.id, carried);
+        containItem(node, carried);
+      }
     }
   }
 }
 
-function dropCargo(node) {
-  var cargo = node.traits.cargo;
-  if (!cargo || !cargo.carrying) return;
-  spawnItem(cargo.carrying, cargo.amount, node.container, node.center);
-  cargo.carrying = null;
-  cargo.amount = 0;
+function containItem(carrier, item) {
+  // Remove item from its region
+  var oldSet = World.byRegion.get(item.container);
+  if (oldSet) oldSet.delete(item.id);
+  // Link into containment chain
+  item.containedBy = carrier.id;
+  carrier.contains.push(item.id);
+}
+
+function dropContained(node) {
+  if (node.contains.length === 0) return;
+  for (var i = 0; i < node.contains.length; i++) {
+    var item = World.nodes.get(node.contains[i]);
+    if (!item || !item.alive) continue;
+    item.containedBy = null;
+    item.container = node.container;
+    item.center.x = node.center.x;
+    item.center.y = node.center.y;
+    if (!World.byRegion.has(node.container)) World.byRegion.set(node.container, new Set());
+    World.byRegion.get(node.container).add(item.id);
+  }
+  node.contains = [];
 }
 
 // --- Stone density: slowdown / blocking ---

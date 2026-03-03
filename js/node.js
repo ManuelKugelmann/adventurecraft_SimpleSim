@@ -1,7 +1,8 @@
 // node.js — Unified Node with count, container, rough position
 // Every node has a count. Nodes with a group trait merge/split on homogeneity.
 // Items (grains, seeds, stones) are nodes too — just no agency.
-// container points to a tile or tilegroup (region)
+// container points to a tile or tilegroup (region).
+// contains/containedBy form a containment chain: region → animal → items
 
 var nextNodeId = 1;
 
@@ -13,11 +14,13 @@ function createNode(templateId) {
     id: nextNodeId++,
     templateId: templateId,
     count: template.defaultCount || 1,
-    container: null,        // tile or tilegroup (region) ID this node occupies
+    container: null,        // region ID this node occupies
     center: { x: 0, y: 0 }, // rough center position (tile coords)
     spread: 1,              // radius in tiles (visual coverage)
     alive: true,
     parent: null,           // organizational hierarchy
+    contains: [],           // node IDs contained by this node (carried items)
+    containedBy: null,      // node ID of carrier, or null if free in region
     traits: {},
   };
 

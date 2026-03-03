@@ -62,8 +62,9 @@ var Rules = {
       v.energy -= 5;
     }
 
-    // Death
+    // Death: drop contained items before dying
     if (node.count <= 0) {
+      dropContained(node);
       node.alive = false;
     }
 

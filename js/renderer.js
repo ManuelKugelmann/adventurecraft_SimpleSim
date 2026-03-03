@@ -95,7 +95,7 @@ var Renderer = {
     // Build a map: tileIndex → list of groups whose spread covers this tile
     var tileGroups = {};  // tileIndex → [{node, tmpl}]
     World.nodes.forEach(function(node) {
-      if (!node.alive) return;
+      if (!node.alive || node.containedBy) return;
       var tmpl = TEMPLATES[node.templateId];
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
@@ -244,6 +244,14 @@ var Renderer = {
         for (var s = 0; s < sk.length; s++) sp.push(sk[s] + ':' + a.actionSpread[sk[s]]);
         if (sp.length > 0) parts.push('spread[' + sp.join(' ') + ']');
       }
+    }
+    if (n.contains && n.contains.length > 0) {
+      var inv = [];
+      for (var c = 0; c < n.contains.length; c++) {
+        var item = World.nodes.get(n.contains[c]);
+        if (item && item.alive) inv.push(item.templateId + ':' + item.count);
+      }
+      if (inv.length > 0) parts.push('carries[' + inv.join(' ') + ']');
     }
 
     this.inspectorEl.innerHTML = parts.join(' | ');
