@@ -15,6 +15,7 @@ var Renderer = {
     this.statsEl = document.getElementById('stats');
     this.tickEl = document.getElementById('tick-count');
     this.inspectorEl = document.getElementById('inspector');
+    this.buildLegend();
 
     var w = World.width, h = World.height;
     this.cells = new Array(w * h);
@@ -46,6 +47,49 @@ var Renderer = {
         self.inspect(x, y);
       }
     });
+  },
+
+  buildLegend: function() {
+    var legendEl = document.getElementById('legend');
+    if (!legendEl) return;
+
+    var categories = [
+      { label: 'Terrain', items: [] },
+      { label: 'Plants', items: [] },
+      { label: 'Seeds', items: [] },
+      { label: 'Items', items: [] },
+      { label: 'Herbivores', items: [] },
+      { label: 'Omnivores', items: [] },
+      { label: 'Carnivores', items: [] },
+    ];
+    var catMap = { terrain: 0, plant: 1, seed: 2, item: 3, herbivore: 4, omnivore: 5, carnivore: 6 };
+
+    var names = Object.keys(TEMPLATES);
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var tmpl = TEMPLATES[name];
+      if (tmpl.category === 'region') continue;
+      var catIdx = catMap[tmpl.category];
+      if (catIdx === undefined) continue;
+      // Use clean display name: strip tile_ prefix
+      var displayName = name.replace(/^tile_/, '');
+      categories[catIdx].items.push({ name: displayName, symbol: tmpl.symbol, color: tmpl.color });
+    }
+
+    var html = [];
+    for (var c = 0; c < categories.length; c++) {
+      var cat = categories[c];
+      if (cat.items.length === 0) continue;
+      var parts = ['<span class="legend-label">' + cat.label + ':</span>'];
+      for (var j = 0; j < cat.items.length; j++) {
+        var it = cat.items[j];
+        parts.push('<span class="legend-item"><span class="legend-icon" style="color:' +
+          it.color + '">' + it.symbol + '</span><span class="legend-name">' +
+          it.name + '</span></span>');
+      }
+      html.push('<span class="legend-group">' + parts.join('') + '</span>');
+    }
+    legendEl.innerHTML = html.join('<span class="legend-sep">|</span>');
   },
 
   computeBorders: function() {
