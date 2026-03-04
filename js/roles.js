@@ -156,7 +156,53 @@ var Roles = {
       }
     }
 
-    // Execute majority action on the whole group
+    // Single action or group of 1: execute on whole group, no split possible
+    if (keys.length <= 1 || node.count <= 1) {
+      if (majorAction) {
+        for (var i = 0; i < roleDef.length; i++) {
+          if (roleDef[i].name === majorAction) {
+            roleDef[i].action(node);
+            break;
+          }
+        }
+      }
+      agency.actionSpread = actionTally;
+      return;
+    }
+
+    // Multiple actions: split off minority factions into new groups
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k] === majorAction) continue;
+      var splitCount = actionTally[keys[k]];
+      if (splitCount <= 0) continue;
+
+      var newNode = createNode(node.templateId);
+      newNode.count = splitCount;
+      newNode.container = node.container;
+      newNode.parent = node.container;
+      newNode.center.x = node.center.x;
+      newNode.center.y = node.center.y;
+      if (node.traits.vitals) {
+        newNode.traits.vitals.hunger = clamp(node.traits.vitals.hunger + (Math.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.energy = clamp(node.traits.vitals.energy + (Math.random() - 0.5) * 3, 0, 100);
+      }
+      computeSpread(newNode);
+      World.nodes.set(newNode.id, newNode);
+      if (!World.byRegion.has(node.container)) World.byRegion.set(node.container, new Set());
+      World.byRegion.get(node.container).add(newNode.id);
+
+      // Execute the minority action on the split group
+      for (var j = 0; j < roleDef.length; j++) {
+        if (roleDef[j].name === keys[k]) {
+          roleDef[j].action(newNode);
+          break;
+        }
+      }
+    }
+
+    // Reduce original to majority count, execute majority action
+    node.count = majorCount;
+    computeSpread(node);
     if (majorAction) {
       for (var i = 0; i < roleDef.length; i++) {
         if (roleDef[i].name === majorAction) {

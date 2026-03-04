@@ -19,7 +19,7 @@ var Rules = {
         var maxCount = CONFIG.PLANT_MAX_DENSITY * region.tileCount;
         if (node.count < maxCount) {
           node.count += CONFIG.PLANT_GROW_RATE * region.fertility;
-          node.count = Math.min(node.count, maxCount);
+          node.count = Math.floor(Math.min(node.count, maxCount));
         }
       }
 

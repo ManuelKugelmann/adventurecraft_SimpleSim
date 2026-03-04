@@ -65,10 +65,12 @@ var Simulation = {
       Rules.biology(node);
     });
 
-    // === Merge same-species groups in same region ===
+    // === Merge colocated same-species groups with similar state ===
+    Groups.mergePass();
+
     // === Split oversized groups ===
     if (World.tick % 5 === 0) {
-      Groups.update();
+      Groups.splitPass();
     }
 
     // === LATE: Actor actions, ordered by initiative ===
