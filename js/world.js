@@ -23,11 +23,6 @@ var World = {
   maxLevel: 0,           // highest level in hierarchy
   tick: 0,
 
-  // Backward-compat aliases (set in init)
-  regions: null,
-  byRegion: null,
-  regionOfTile: null,
-
   init: function(w, h) {
     this.width = w;
     this.height = h;
@@ -40,11 +35,6 @@ var World = {
     this.maxLevel = 0;
     this.tick = 0;
     nextNodeId = 1;
-
-    // Backward-compat aliases
-    this.regions = this.groups;
-    this.byRegion = this.byGroup;
-    this.regionOfTile = this.groupOfTile;
 
     // Initialize all tiles as grass nodes
     for (var i = 0; i < w * h; i++) {
@@ -152,10 +142,6 @@ var World = {
     return result;
   },
 
-  // Backward compat: groupsInRegion = groupsInContainer
-  groupsInRegion: function(containerId) {
-    return this.groupsInContainer(containerId);
-  },
 
   neighborsOf: function(containerId) {
     var g = this.groups.get(containerId);
@@ -175,10 +161,6 @@ var World = {
     return result;
   },
 
-  // Backward compat
-  groupsNearRegion: function(containerId) {
-    return this.groupsNearContainer(containerId);
-  },
 
   // Walkable neighbor groups at same level as given container
   walkableNeighbors: function(containerId) {
@@ -245,7 +227,7 @@ var World = {
       if (!node.alive || node.count <= 0) {
         var tmpl = TEMPLATES[node.templateId];
         // Don't remove structural nodes (terrain, regions, tilegroups)
-        if (tmpl.category === 'terrain' || tmpl.category === 'region' || tmpl.category === 'tilegroup') return;
+        if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
         toRemove.push(node);
       }
     });
@@ -325,7 +307,7 @@ var World = {
     function floodGroup(startIdx) {
       var startTile = self.tiles[startIdx];
       var type = startTile.type;
-      var groupNode = createNode('region');
+      var groupNode = createNode('tilegroup');
       var groupId = groupNode.id;
       groupNode.type = type;
       groupNode.level = 1;

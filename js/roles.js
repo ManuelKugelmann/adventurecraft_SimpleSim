@@ -87,10 +87,10 @@ var Roles = {
       if (hasUrgent && hasNonUrgent >= 2) return true;
     }
 
-    // Multiple distinct prey types in same region → compound combat formula unreliable
+    // Multiple distinct prey types in same container → compound combat formula unreliable
     var diet = node.traits.diet;
     if (diet) {
-      var groups = World.groupsInRegion(node.container);
+      var groups = World.groupsInContainer(node.container);
       var preyTypes = 0;
       for (var i = 0; i < groups.length; i++) {
         var other = groups[i];
@@ -188,8 +188,8 @@ var Roles = {
       }
       computeSpread(newNode);
       World.nodes.set(newNode.id, newNode);
-      if (!World.byRegion.has(node.container)) World.byRegion.set(node.container, new Set());
-      World.byRegion.get(node.container).add(newNode.id);
+      if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
+      World.byGroup.get(node.container).add(newNode.id);
 
       // Execute the minority action on the split group
       for (var j = 0; j < roleDef.length; j++) {
@@ -225,11 +225,11 @@ function clamp(val, lo, hi) { return val < lo ? lo : val > hi ? hi : val; }
 var ROLE_DEFS = {
   grazer: [
     { name: 'flee', urgent: true,
-      condition: function(n) { return threatsInRegion(n).length > 0; },
+      condition: function(n) { return threatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
     { name: 'graze',
-      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInRegion(n); },
+      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInContainer(n); },
       action: function(n) { graze(n); }
     },
     { name: 'seekFood',
@@ -242,17 +242,17 @@ var ROLE_DEFS = {
     },
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wanderRegion(n); }
+      action: function(n) { wander(n); }
     },
   ],
 
   hunter: [
     { name: 'flee', urgent: true,
-      condition: function(n) { return biggerThreatsInRegion(n).length > 0; },
+      condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
     { name: 'hunt',
-      condition: function(n) { return n.traits.vitals.hunger > 30 && preyInRegion(n); },
+      condition: function(n) { return n.traits.vitals.hunger > 30 && preyInContainer(n); },
       action: function(n) { hunt(n); }
     },
     { name: 'seekPrey',
@@ -265,21 +265,21 @@ var ROLE_DEFS = {
     },
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wanderRegion(n); }
+      action: function(n) { wander(n); }
     },
   ],
 
   forager: [
     { name: 'flee', urgent: true,
-      condition: function(n) { return biggerThreatsInRegion(n).length > 0; },
+      condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
     { name: 'hunt',
-      condition: function(n) { return n.traits.vitals.hunger > 50 && preyInRegion(n); },
+      condition: function(n) { return n.traits.vitals.hunger > 50 && preyInContainer(n); },
       action: function(n) { hunt(n); }
     },
     { name: 'graze',
-      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInRegion(n); },
+      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInContainer(n); },
       action: function(n) { graze(n); }
     },
     { name: 'seekFood',
@@ -292,15 +292,15 @@ var ROLE_DEFS = {
     },
     { name: 'wander',
       condition: function() { return true; },
-      action: function(n) { wanderRegion(n); }
+      action: function(n) { wander(n); }
     },
   ],
 };
 
-// --- Region-scale actions (compound math scales with count) ---
+// --- Container-scale actions (compound math scales with count) ---
 
 function graze(node) {
-  var food = foodInRegion(node);
+  var food = foodInContainer(node);
   if (!food) return;
 
   var eaten = Math.min(food.count, node.count * CONFIG.FEED_RATE);
@@ -315,7 +315,7 @@ function graze(node) {
 }
 
 function hunt(node) {
-  var prey = preyInRegion(node);
+  var prey = preyInContainer(node);
   if (!prey) return;
 
   var myStrength = node.count * TEMPLATES[node.templateId].strength;
@@ -345,7 +345,7 @@ function rest(node) {
   node.traits.agency.lastAction = 'rest';
 }
 
-function wanderRegion(node) {
+function wander(node) {
   if (stoneMoveBlocked(node)) return;
   var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return;
@@ -357,12 +357,12 @@ function wanderRegion(node) {
   node.traits.agency.lastAction = 'wander';
 }
 
-// --- Region-scale perception ---
+// --- Container-scale perception ---
 
-function foodInRegion(node) {
+function foodInContainer(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var groups = World.groupsInRegion(node.container);
+  var groups = World.groupsInContainer(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (other.id === node.id || !other.alive) continue;
@@ -375,10 +375,10 @@ function foodInRegion(node) {
   return null;
 }
 
-function preyInRegion(node) {
+function preyInContainer(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var groups = World.groupsInRegion(node.container);
+  var groups = World.groupsInContainer(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (other.id === node.id || !other.alive) continue;
@@ -391,10 +391,10 @@ function preyInRegion(node) {
   return null;
 }
 
-function threatsInRegion(node) {
+function threatsInContainer(node) {
   var diet = node.traits.diet;
   if (!diet || !diet.eatenBy || diet.eatenBy.length === 0) return [];
-  var groups = World.groupsInRegion(node.container);
+  var groups = World.groupsInContainer(node.container);
   var threats = [];
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
@@ -406,10 +406,10 @@ function threatsInRegion(node) {
   return threats;
 }
 
-function biggerThreatsInRegion(node) {
+function biggerThreatsInContainer(node) {
   var myCategory = TEMPLATES[node.templateId].category;
   var myStrength = TEMPLATES[node.templateId].strength;
-  var groups = World.groupsInRegion(node.container);
+  var groups = World.groupsInContainer(node.container);
   var threats = [];
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
@@ -426,7 +426,7 @@ function biggerThreatsInRegion(node) {
 // --- Transport: pickup / drop via contains/containedBy chain ---
 
 function tryPickup(node) {
-  var groups = World.groupsInRegion(node.container);
+  var groups = World.groupsInContainer(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (!other.alive || other.count <= 0 || other.containedBy) continue;
@@ -456,8 +456,8 @@ function tryPickup(node) {
 }
 
 function containItem(carrier, item) {
-  // Remove item from its region
-  var oldSet = World.byRegion.get(item.container);
+  // Remove item from its container
+  var oldSet = World.byGroup.get(item.container);
   if (oldSet) oldSet.delete(item.id);
   // Link into containment chain
   item.containedBy = carrier.id;
@@ -473,16 +473,16 @@ function dropContained(node) {
     item.container = node.container;
     item.center.x = node.center.x;
     item.center.y = node.center.y;
-    if (!World.byRegion.has(node.container)) World.byRegion.set(node.container, new Set());
-    World.byRegion.get(node.container).add(item.id);
+    if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
+    World.byGroup.get(node.container).add(item.id);
   }
   node.contains = [];
 }
 
 // --- Stone density: slowdown / blocking ---
 
-function stonesInRegion(regionId) {
-  var groups = World.groupsInRegion(regionId);
+function stonesInContainer(regionId) {
+  var groups = World.groupsInContainer(regionId);
   var total = 0;
   for (var i = 0; i < groups.length; i++) {
     if (groups[i].alive && TEMPLATES[groups[i].templateId].category === 'item') {
@@ -495,7 +495,7 @@ function stonesInRegion(regionId) {
 function stoneMoveBlocked(node) {
   var group = World.groups.get(node.container);
   if (!group) return false;
-  var density = stonesInRegion(node.container) / group.tileCount;
+  var density = stonesInContainer(node.container) / group.tileCount;
   if (density >= CONFIG.STONE_BLOCK_PER_TILE) {
     node.traits.vitals.energy -= 0.5;
     node.traits.agency.lastAction = 'blocked-stones';

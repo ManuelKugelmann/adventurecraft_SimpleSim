@@ -1,5 +1,5 @@
 // planner.js — Reusable processes (multi-step action sequences)
-// Region-scale: movement between regions, no tile pathfinding
+// Multi-step action sequences, movement between container groups
 
 var Planner = {
   // Start a process for a node
@@ -55,15 +55,15 @@ var Planner = {
   },
 };
 
-// --- Reusable process definitions (region-scale) ---
+// --- Reusable process definitions ---
 
 var PROCESSES = {
   flee: {
     init: function(node) {
       return {
         steps: [
-          { exec: function(n) { return fleeRegion(n); } },
-          { exec: function(n) { return fleeRegion(n); } },
+          { exec: function(n) { return fleeContainer(n); } },
+          { exec: function(n) { return fleeContainer(n); } },
         ]
       };
     },
@@ -72,9 +72,9 @@ var PROCESSES = {
   findFood: {
     init: function(node) {
       // Scan neighbor regions for plant food
-      var target = findFoodRegion(node);
+      var target = findFoodNearby(node);
       if (!target) {
-        return { steps: [{ exec: function(n) { wanderRegion(n); return 'done'; } }] };
+        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
       }
       return {
         steps: [
@@ -87,7 +87,7 @@ var PROCESSES = {
             n.traits.agency.lastAction = 'seek-food';
             return 'done';
           }},
-          { valid: function(n) { return foodInRegion(n) !== null; },
+          { valid: function(n) { return foodInContainer(n) !== null; },
             exec: function(n) { graze(n); return 'done'; }
           },
         ]
@@ -98,9 +98,9 @@ var PROCESSES = {
   huntPrey: {
     init: function(node) {
       // Scan neighbor regions for prey
-      var target = findPreyRegion(node);
+      var target = findPreyNearby(node);
       if (!target) {
-        return { steps: [{ exec: function(n) { wanderRegion(n); return 'done'; } }] };
+        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
       }
       return {
         steps: [
@@ -113,7 +113,7 @@ var PROCESSES = {
             n.traits.agency.lastAction = 'seek-prey';
             return 'done';
           }},
-          { valid: function(n) { return preyInRegion(n) !== null; },
+          { valid: function(n) { return preyInContainer(n) !== null; },
             exec: function(n) { hunt(n); return 'done'; }
           },
         ]
@@ -122,29 +122,29 @@ var PROCESSES = {
   },
 };
 
-// --- Region-scale process helpers ---
+// --- Process helpers ---
 
-function fleeRegion(node) {
-  var threats = threatsInRegion(node);
-  if (threats.length === 0) threats = biggerThreatsInRegion(node);
+function fleeContainer(node) {
+  var threats = threatsInContainer(node);
+  if (threats.length === 0) threats = biggerThreatsInContainer(node);
   if (threats.length === 0) return 'done';
 
-  // Pick a walkable neighbor region away from threats
+  // Pick a walkable neighbor away from threats
   var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return 'fail';
 
-  // Score each neighbor: prefer regions farther from threats
-  var threatRegion = threats[0].container; // primary threat location
+  // Score each neighbor: prefer groups farther from threats
+  var threatGroup = threats[0].container;
   var best = null;
   var bestScore = -Infinity;
   for (var i = 0; i < neighbors.length; i++) {
-    var nRegion = World.regions.get(neighbors[i]);
-    if (!nRegion) continue;
-    var tRegion = World.regions.get(threatRegion);
-    if (!tRegion) { best = neighbors[i]; break; }
-    // Distance from threat (Manhattan between region centers)
-    var dist = Math.abs(nRegion.center.x - tRegion.center.x) +
-               Math.abs(nRegion.center.y - tRegion.center.y);
+    var nGroup = World.groups.get(neighbors[i]);
+    if (!nGroup) continue;
+    var tGroup = World.groups.get(threatGroup);
+    if (!tGroup) { best = neighbors[i]; break; }
+    // Distance from threat (Manhattan between group centers)
+    var dist = Math.abs(nGroup.center.x - tGroup.center.x) +
+               Math.abs(nGroup.center.y - tGroup.center.y);
     if (dist > bestScore) {
       bestScore = dist;
       best = neighbors[i];
@@ -162,13 +162,13 @@ function fleeRegion(node) {
   return 'done';
 }
 
-// Find a neighbor region containing plant food
-function findFoodRegion(node) {
+// Find a neighbor group containing plant food
+function findFoodNearby(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
   var neighbors = World.walkableNeighbors(node.container);
   for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInRegion(neighbors[i]);
+    var groups = World.groupsInContainer(neighbors[i]);
     for (var j = 0; j < groups.length; j++) {
       var other = groups[j];
       if (!other.alive || other.count <= 0) continue;
@@ -182,13 +182,13 @@ function findFoodRegion(node) {
   return null;
 }
 
-// Find a neighbor region containing prey
-function findPreyRegion(node) {
+// Find a neighbor group containing prey
+function findPreyNearby(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
   var neighbors = World.walkableNeighbors(node.container);
   for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInRegion(neighbors[i]);
+    var groups = World.groupsInContainer(neighbors[i]);
     for (var j = 0; j < groups.length; j++) {
       var other = groups[j];
       if (!other.alive || other.count <= 0) continue;

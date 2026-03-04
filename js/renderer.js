@@ -68,7 +68,7 @@ var Renderer = {
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
       var tmpl = TEMPLATES[name];
-      if (tmpl.category === 'region' || tmpl.category === 'tilegroup') continue;
+      if (tmpl.category === 'tilegroup') continue;
       var catIdx = catMap[tmpl.category];
       if (catIdx === undefined) continue;
       var displayName = name.replace(/^tile_/, '');
@@ -176,7 +176,7 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
-      if (tmpl.category === 'terrain' || tmpl.category === 'region' || tmpl.category === 'tilegroup') return;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
       if (node.containedBy) return;
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
@@ -301,7 +301,7 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (node.alive) {
         var tmpl = TEMPLATES[node.templateId];
-        if (tmpl.category !== 'terrain' && tmpl.category !== 'region' && tmpl.category !== 'tilegroup') {
+        if (tmpl.category !== 'terrain' && tmpl.category !== 'tilegroup') {
           counts[node.templateId] = (counts[node.templateId] || 0) + Math.floor(node.count);
         }
       }
@@ -311,7 +311,7 @@ var Renderer = {
     for (var i = 0; i < templateNames.length; i++) {
       var name = templateNames[i];
       var tmpl = TEMPLATES[name];
-      if (tmpl.category === 'terrain' || tmpl.category === 'region' || tmpl.category === 'tilegroup') continue;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') continue;
       parts.push('<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span>' + counts[name]);
     }
     this.statsEl.innerHTML = parts.join(' ');

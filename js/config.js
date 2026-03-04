@@ -1,5 +1,5 @@
 // config.js — Templates, constants, tuning knobs
-// Multiscale region-graph simulation
+// Multiscale hierarchy simulation
 
 var CONFIG = {
   GRID_WIDTH: 80,
@@ -20,7 +20,7 @@ var CONFIG = {
   HIERARCHY_BRANCH_MAX: 5,      // max children per higher-level group
 
   // Initial group spawns (number of groups, not individuals)
-  INITIAL_GRASS: 0,    // auto: one per walkable region
+  INITIAL_GRASS: 0,    // auto: one per walkable L1 group
   INITIAL_BUSH: 0,     // auto: ~half of walkable regions
   INITIAL_TREE: 0,     // auto: ~quarter of walkable regions
   INITIAL_RABBIT: 4,
@@ -34,7 +34,7 @@ var CONFIG = {
   HUNGER_RATE: 0.4,
   ENERGY_DRAIN: 0.15,
   PLANT_GROW_RATE: 0.8,
-  PLANT_MAX_DENSITY: 5,    // max count per tile in region
+  PLANT_MAX_DENSITY: 5,    // max count per tile in group
   SEED_DROP_RATE: 0.02,    // chance per tick that a plant drops seeds/grains
 
   // Group interactions — compound statistics
@@ -58,7 +58,7 @@ var CONFIG = {
   CARRY_STONE_CHANCE: 0.15,  // probability of picking up stones when moving
   CARRY_FRACTION: 0.1,       // fraction of item count carried per trip
 
-  // Stones: movement penalty when dense in a region
+  // Stones: movement penalty when dense in a group
   STONE_SLOW_PER_TILE: 3,    // stones per tile before slowdown begins
   STONE_BLOCK_PER_TILE: 8,   // stones per tile = impassable
 
@@ -79,8 +79,7 @@ var TEMPLATES = {
   tile_water: { category: 'terrain', symbol: '~', color: '#3a6ea5', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   tile_dirt:  { category: 'terrain', symbol: ',', color: '#8b7355', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
-  // --- Structural containers (grouping hierarchy) ---
-  region: { category: 'region', symbol: 'R', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
+  // --- Structural containers (grouping hierarchy, all levels) ---
   tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
   grass: {
