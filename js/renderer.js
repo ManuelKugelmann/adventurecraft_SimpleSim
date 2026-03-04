@@ -136,73 +136,109 @@ var Renderer = {
   draw: function() {
     var w = World.width, h = World.height;
 
-    // Build a map: tileIndex → list of groups whose spread covers this tile
-    var tileGroups = {};  // tileIndex → [{node, tmpl}]
+    // Collect all visible groups with their spread tiles
+    var allGroups = [];  // [{node, tmpl, tiles:[idx,...], centerIdx}]
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
-      // Skip structural nodes (terrain tiles, regions) and carried items
       if (tmpl.category === 'terrain' || tmpl.category === 'region') return;
       if (node.containedBy) return;
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
       var x0 = Math.max(0, cx - r), x1 = Math.min(w - 1, cx + r);
       var y0 = Math.max(0, cy - r), y1 = Math.min(h - 1, cy + r);
+      var tiles = [];
       for (var ty = y0; ty <= y1; ty++) {
         for (var tx = x0; tx <= x1; tx++) {
           var idx = ty * w + tx;
-          // Only tint tiles in the same region
           if (World.regionOfTile[idx] === node.container) {
-            if (!tileGroups[idx]) tileGroups[idx] = [];
-            tileGroups[idx].push({ node: node, tmpl: tmpl });
+            tiles.push(idx);
           }
         }
       }
+      if (tiles.length > 0) {
+        allGroups.push({ node: node, tmpl: tmpl, tiles: tiles, centerIdx: cy * w + cx });
+      }
     });
+
+    // Sort: biggest spread first (bottom layer), smallest on top
+    allGroups.sort(function(a, b) { return b.node.spread - a.node.spread; });
+
+    // Pick icon tiles for each group: N icons for spread N
+    // Process bottom-to-top so smaller groups' icons override larger ones
+    var iconAt = {};  // tileIndex → {node, tmpl, isCenter}
+    var tintAt = {};  // tileIndex → {tmpl} (biggest group sets the tint, painted first)
+    for (var gi = 0; gi < allGroups.length; gi++) {
+      var g = allGroups[gi];
+      var node = g.node, tmpl = g.tmpl, tiles = g.tiles;
+      var cx = node.center.x, cy = node.center.y;
+
+      // Biggest group painted first sets the background tint
+      for (var ti = 0; ti < tiles.length; ti++) {
+        if (!tintAt[tiles[ti]]) tintAt[tiles[ti]] = { tmpl: tmpl };
+      }
+
+      // Always place icon at center
+      iconAt[g.centerIdx] = { node: node, tmpl: tmpl, isCenter: true };
+
+      // Scatter count-1 more icons across spread (1 icon per member)
+      var numExtra = Math.min(Math.floor(node.count) - 1, tiles.length - 1);
+      if (numExtra > 0) {
+        var nonCenter = [];
+        for (var ti = 0; ti < tiles.length; ti++) {
+          if (tiles[ti] !== g.centerIdx) nonCenter.push(tiles[ti]);
+        }
+        nonCenter.sort(function(a, b) {
+          var ax = a % w - cx, ay = Math.floor(a / w) - cy;
+          var bx = b % w - cx, by = Math.floor(b / w) - cy;
+          return (ax * ax + ay * ay) - (bx * bx + by * by);
+        });
+        var step = nonCenter.length / numExtra;
+        for (var ei = 0; ei < numExtra; ei++) {
+          var idx = nonCenter[Math.floor(ei * step)];
+          iconAt[idx] = { node: node, tmpl: tmpl, isCenter: false };
+        }
+      }
+    }
 
     // Render each tile
     for (var i = 0; i < w * h; i++) {
       var tile = World.tiles[i];
       var tileType = TILE_TYPES[tile.type];
       var span = this.cells[i];
+      var icon = iconAt[i];
+      var tint = tintAt[i];
 
-      var groups = tileGroups[i];
-      if (groups && groups.length > 0) {
-        // Find highest priority group on this tile
-        var best = groups[0];
-        for (var g = 1; g < groups.length; g++) {
-          if (groups[g].tmpl.renderPriority > best.tmpl.renderPriority) {
-            best = groups[g];
+      if (icon && icon.isCenter) {
+        // Center tile: symbol + count + carried items
+        var label = icon.tmpl.symbol + Math.floor(icon.node.count);
+        for (var ci = 0; ci < icon.node.contains.length; ci++) {
+          var carried = World.nodes.get(icon.node.contains[ci]);
+          if (carried && carried.alive) {
+            label += TEMPLATES[carried.templateId].symbol;
           }
         }
-
-        // Is this the center tile of the best group? Show icon + count
-        var node = best.node;
-        if (Math.abs(node.center.x - (i % w)) <= 0 && Math.abs(node.center.y - Math.floor(i / w)) <= 0) {
-          var label = best.tmpl.symbol + Math.floor(node.count);
-          // Show contained items small on top of carrier
-          for (var ci = 0; ci < node.contains.length; ci++) {
-            var carried = World.nodes.get(node.contains[ci]);
-            if (carried && carried.alive) {
-              label += TEMPLATES[carried.templateId].symbol;
-            }
-          }
-          span.textContent = label;
-          span.style.color = best.tmpl.color;
-        } else {
-          // Spread tile: just tint
-          span.textContent = tileType.symbol;
-          span.style.color = best.tmpl.color;
-        }
-        // Tinted background
-        span.style.backgroundColor = this.tintColor(tileType.bg, best.tmpl.color, 0.25);
-        span.style.opacity = 1;
+        span.textContent = label;
+        span.style.color = icon.tmpl.color;
+        span.style.backgroundColor = this.tintColor(tileType.bg, icon.tmpl.color, 0.25);
+      } else if (icon) {
+        // Distributed icon tile: just the symbol in its own color
+        span.textContent = icon.tmpl.symbol;
+        span.style.color = icon.tmpl.color;
+        span.style.backgroundColor = tint
+          ? this.tintColor(tileType.bg, tint.tmpl.color, 0.25)
+          : tileType.bg;
+      } else if (tint) {
+        // Spread tile: tinted terrain, no icon
+        span.textContent = tileType.symbol;
+        span.style.color = tint.tmpl.color;
+        span.style.backgroundColor = this.tintColor(tileType.bg, tint.tmpl.color, 0.25);
       } else {
         span.textContent = tileType.symbol;
         span.style.color = tileType.color;
         span.style.backgroundColor = tileType.bg;
-        span.style.opacity = 1;
       }
+      span.style.opacity = 1;
     }
 
     this.tickEl.textContent = World.tick;
