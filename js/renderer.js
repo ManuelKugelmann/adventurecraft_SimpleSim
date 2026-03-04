@@ -179,7 +179,7 @@ var Renderer = {
         // Is this the center tile of the best group? Show icon + count
         var node = best.node;
         if (Math.abs(node.center.x - (i % w)) <= 0 && Math.abs(node.center.y - Math.floor(i / w)) <= 0) {
-          var label = best.tmpl.symbol + node.count;
+          var label = best.tmpl.symbol + Math.floor(node.count);
           // Show contained items small on top of carrier
           for (var ci = 0; ci < node.contains.length; ci++) {
             var carried = World.nodes.get(node.contains[ci]);
@@ -238,7 +238,7 @@ var Renderer = {
       if (node.alive) {
         var tmpl = TEMPLATES[node.templateId];
         if (tmpl.category !== 'terrain' && tmpl.category !== 'region') {
-          counts[node.templateId] = (counts[node.templateId] || 0) + node.count;
+          counts[node.templateId] = (counts[node.templateId] || 0) + Math.floor(node.count);
         }
       }
     });
@@ -286,7 +286,7 @@ var Renderer = {
     }
     var tmpl = TEMPLATES[n.templateId];
     var parts = ['<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
-      ' | count:' + n.count + ' | container:' + n.container];
+      ' | count:' + Math.floor(n.count) + ' | container:' + n.container];
 
     if (n.traits.vitals) {
       var v = n.traits.vitals;
@@ -308,7 +308,7 @@ var Renderer = {
       var inv = [];
       for (var c = 0; c < n.contains.length; c++) {
         var item = World.nodes.get(n.contains[c]);
-        if (item && item.alive) inv.push(item.templateId + ':' + item.count);
+        if (item && item.alive) inv.push(item.templateId + ':' + Math.floor(item.count));
       }
       if (inv.length > 0) parts.push('carries[' + inv.join(' ') + ']');
     }
