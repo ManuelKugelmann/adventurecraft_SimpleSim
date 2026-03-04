@@ -65,11 +65,16 @@ var Simulation = {
       Rules.biology(node);
     });
 
-    // === Merge same-species groups in same region ===
+    // === Merge colocated same-species groups with similar state ===
+    Groups.mergePass();
+
     // === Split oversized groups ===
     if (World.tick % 5 === 0) {
-      Groups.update();
+      Groups.splitPass();
     }
+
+    // === MOVEMENT: advance entities along graph edges ===
+    World.advancePositions();
 
     // === LATE: Actor actions, ordered by initiative ===
     var actors = [];
@@ -84,7 +89,7 @@ var Simulation = {
     });
 
     for (var i = 0; i < actors.length; i++) {
-      if (actors[i].alive) {
+      if (actors[i].alive && !World.isMoving(actors[i])) {
         Roles.evaluate(actors[i]);
       }
     }

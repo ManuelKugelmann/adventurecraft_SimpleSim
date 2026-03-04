@@ -23,7 +23,7 @@ The WIP spec defines the full architecture. This prototype implements:
 | Node (Id, Template, Weight, ContainerNode, ParentNode) | `createNode()` in node.js — id, templateId, count, container, parent | aligned |
 | Two trees: ContainerNode + ParentNode | `container`/`parent` (grouping), `contains`/`containedBy` (structural transport) | aligned |
 | Weight (count) | `node.count` — 1=individual, >1=group/batch | aligned |
-| Tiles and regions are nodes | tile_* and region templates, all in World.nodes | aligned |
+| Tiles and regions are nodes | tile_* and tilegroup templates in World.nodes, recursive hierarchy | aligned |
 | Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
 | Rules by layer (L0-L4) | rules.js: biology only (L1). No L0/L2/L3/L4 yet | partial |
 | Roles (reactive behaviors) | roles.js: ROLE_DEFS with condition/action priority lists | aligned |
@@ -39,8 +39,8 @@ The WIP spec defines the full architecture. This prototype implements:
 | WIP Spec | SimpleSim | Notes |
 |---|---|---|
 | Weight | count | Same concept: 1=individual, >1=batch |
-| ContainerNode | container | Region ID (what region am I in) |
-| ParentNode | parent | Grouping hierarchy (tiles→region, groups→region) |
+| ContainerNode | container | Group ID at any hierarchy level |
+| ParentNode | parent | Grouping hierarchy (tiles→L1 group→L2 group→...) |
 | ContainerIndex | contains[] | What's physically inside me (carried items) |
 | SpatialTrait | spatial trait | Only has speed, no scale/capacity yet |
 | VitalsTrait | vitals trait | Only hunger/energy, spec has health/thirst/fatigue/mood/wounds/mana |
@@ -55,39 +55,69 @@ The WIP spec defines the full architecture. This prototype implements:
 index.html          Entry point, grid container, controls
 js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES (all entity definitions)
 js/node.js          createNode(), computeSpread() — node factory
-js/world.js         World object: tile grid, regions, nodes map, spawn/move/remove
+js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
 js/rules.js         Rules.biology() — hunger, growth, reproduction, starvation, seed drop
 js/roles.js         Roles.evaluate() — role definitions, compound/placeholder execution
 js/planner.js       Planner — multi-step processes (flee, findFood, huntPrey)
 js/groups.js        Groups — merge/split passes for nodes with group trait
-js/renderer.js      Renderer — ASCII grid, spread tinting, region borders, inspector
+js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarchy borders, inspector
 js/simulation.js    Simulation — tick loop, layer execution order
 ```
 
 ### Node Structure
 
 Every entity is a node. Two hierarchies:
-- **parent**: grouping for multiscale sim (tiles parented to regions, groups parented to regions)
+- **parent**: grouping for multiscale sim (tiles→L1 group→L2 group→...)
 - **contains/containedBy**: structural transport (animals carrying items)
+
+Spatial hierarchy (recursive tile grouping):
+- Level 0 = individual tiles (80x80)
+- Level 1 = tile groups (16-25 tiles each, same terrain type, flood-fill)
+- Level 2 = groups of 3-5 L1 groups
+- Level 3+ = continues recursively until map is covered (~4 levels for 80x80)
+
+Entity container can point to any level. Position is graph-based within the container,
+`center:{x,y}` is derived by interpolation.
 
 ```
 Node {
     id, templateId, count,
-    container,      // region ID (cached, always set)
-    parent,         // grouping hierarchy parent (region ID for tiles/groups)
-    center: {x,y},  // rough tile position
+    container,      // group ID at any hierarchy level
+    parent,         // grouping hierarchy parent
+    center: {x,y},  // tile-level position (derived from graph position)
     spread,         // visual radius in tiles
     alive,
     contains: [],   // IDs of nodes I carry
     containedBy,    // ID of node carrying me, or null
+    position: {     // graph position within container
+      at,           // 'center' or neighborId (current location on graph)
+      target,       // null (stationary), 'center', or neighborId (destination)
+      progress      // 0.0-1.0 (fraction of edge traversed)
+    },
     traits: {}      // vitals, diet, agency, spatial, group
 }
 ```
 
+### Connection Graph (Links)
+
+Each tile group has a `links` map connecting it to its neighbors:
+```
+group.links[neighborId] = {
+    pos: {x,y},  // centroid of border tiles between groups
+    dist,        // Manhattan distance from center to link
+    effort       // traversal effort (dist * terrain modifier)
+}
+```
+
+Movement is gradual: `startMove(node, neighborId)` initiates traversal along
+graph edges. Entity moves center→link, crosses to neighbor, then link→center.
+`advancePositions()` runs each tick to advance all moving entities.
+Role evaluation is skipped while an entity is in transit.
+
 ### Template Categories
 
 - `terrain`: tile nodes (tile_grass, tile_water, tile_dirt, tile_rock)
-- `region`: region container nodes
+- `tilegroup`: hierarchy group nodes at all levels (L1 = same-type tile clusters, L2+ = recursive grouping)
 - `plant`: grass, bush, tree (have vitals, group trait, no agency)
 - `seed`: grains, seeds (edible bulk items, no vitals)
 - `item`: stone (inert bulk, blocks movement at density)
@@ -104,7 +134,7 @@ Node {
 ### Transport System
 
 Animals pick up seeds/stones when moving (`tryPickup`), carry them via `contains`/`containedBy`,
-and drop them in the new region (`dropContained`). Stones create movement penalties at high density.
+and drop them in the new group (`dropContained`). Stones create movement penalties at high density.
 
 ## Commands
 
@@ -117,3 +147,4 @@ No build step. Open `index.html` in a browser. No dependencies.
 - `var` not `let`/`const`
 - Functional style: plain objects + free functions
 - No semicolon-free style — semicolons everywhere
+- No backward compatibility — this is WIP, rename/remove freely

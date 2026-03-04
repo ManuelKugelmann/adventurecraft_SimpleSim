@@ -13,12 +13,12 @@ var Rules = {
     if (!v) return;
 
     if (tmpl.category === 'plant') {
-      // Plant growth: count increases based on region fertility
-      var region = World.regions.get(node.container);
-      if (region) {
-        var maxCount = CONFIG.PLANT_MAX_DENSITY * region.tileCount;
+      // Plant growth: count increases based on container fertility
+      var group = World.groups.get(node.container);
+      if (group) {
+        var maxCount = CONFIG.PLANT_MAX_DENSITY * group.tileCount;
         if (node.count < maxCount) {
-          node.count += CONFIG.PLANT_GROW_RATE * region.fertility;
+          node.count += CONFIG.PLANT_GROW_RATE * group.fertility;
           node.count = Math.min(node.count, maxCount);
         }
       }
@@ -82,6 +82,6 @@ function spawnItem(templateId, count, containerId, center) {
   node.center.y = center.y;
   computeSpread(node);
   World.nodes.set(node.id, node);
-  if (!World.byRegion.has(containerId)) World.byRegion.set(containerId, new Set());
-  World.byRegion.get(containerId).add(node.id);
+  if (!World.byGroup.has(containerId)) World.byGroup.set(containerId, new Set());
+  World.byGroup.get(containerId).add(node.id);
 }

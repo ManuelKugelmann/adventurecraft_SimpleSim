@@ -78,7 +78,7 @@ var Groups = {
       if (!node.alive) continue;
 
       var neighbors = World.walkableNeighbors(node.container);
-      var targetRegion = neighbors.length > 0
+      var targetGroup = neighbors.length > 0
         ? neighbors[Math.floor(Math.random() * neighbors.length)]
         : node.container;
 
@@ -88,11 +88,11 @@ var Groups = {
 
       var newNode = createNode(node.templateId);
       newNode.count = splitCount;
-      newNode.container = targetRegion;
-      newNode.parent = targetRegion;
-      var region = World.regions.get(targetRegion);
-      newNode.center.x = region.center.x;
-      newNode.center.y = region.center.y;
+      newNode.container = targetGroup;
+      newNode.parent = targetGroup;
+      var group = World.groups.get(targetGroup);
+      newNode.center.x = group.center.x;
+      newNode.center.y = group.center.y;
       computeSpread(newNode);
 
       // Copy vitals with slight variation
@@ -102,8 +102,8 @@ var Groups = {
       }
 
       World.nodes.set(newNode.id, newNode);
-      if (!World.byRegion.has(targetRegion)) World.byRegion.set(targetRegion, new Set());
-      World.byRegion.get(targetRegion).add(newNode.id);
+      if (!World.byGroup.has(targetGroup)) World.byGroup.set(targetGroup, new Set());
+      World.byGroup.get(targetGroup).add(newNode.id);
     }
   },
 };

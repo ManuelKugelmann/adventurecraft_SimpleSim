@@ -1,4 +1,4 @@
-// renderer.js — Region borders, group labels, spread tints
+// renderer.js — Multi-level hierarchy borders, group labels, spread tints
 
 var Renderer = {
   cells: null,
@@ -7,14 +7,15 @@ var Renderer = {
   tickEl: null,
   inspectorEl: null,
   selectedNode: null,
-  // Pre-computed: border info per tile (set once after region gen)
-  borderInfo: null,  // flat array of {top,right,bottom,left} border flags + color
+  // Pre-computed: border info per tile (set once after hierarchy gen)
+  borderInfo: null,  // flat array of {top,right,bottom,left} border flags + level + color
 
   init: function() {
     this.gridEl = document.getElementById('grid');
     this.statsEl = document.getElementById('stats');
     this.tickEl = document.getElementById('tick-count');
     this.inspectorEl = document.getElementById('inspector');
+    this.buildLegend();
 
     var w = World.width, h = World.height;
     this.cells = new Array(w * h);
@@ -30,7 +31,7 @@ var Renderer = {
     }
     this.gridEl.appendChild(frag);
 
-    // Pre-compute region borders (static after terrain gen)
+    // Pre-compute hierarchy borders (static after terrain gen)
     this.computeBorders();
 
     // Apply static borders to cells
@@ -48,27 +49,96 @@ var Renderer = {
     });
   },
 
+  buildLegend: function() {
+    var legendEl = document.getElementById('legend');
+    if (!legendEl) return;
+
+    var categories = [
+      { label: 'Terrain', items: [] },
+      { label: 'Plants', items: [] },
+      { label: 'Seeds', items: [] },
+      { label: 'Items', items: [] },
+      { label: 'Herbivores', items: [] },
+      { label: 'Omnivores', items: [] },
+      { label: 'Carnivores', items: [] },
+    ];
+    var catMap = { terrain: 0, plant: 1, seed: 2, item: 3, herbivore: 4, omnivore: 5, carnivore: 6 };
+
+    var names = Object.keys(TEMPLATES);
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var tmpl = TEMPLATES[name];
+      if (tmpl.category === 'tilegroup') continue;
+      var catIdx = catMap[tmpl.category];
+      if (catIdx === undefined) continue;
+      var displayName = name.replace(/^tile_/, '');
+      categories[catIdx].items.push({ name: displayName, symbol: tmpl.symbol, color: tmpl.color });
+    }
+
+    var html = [];
+    for (var c = 0; c < categories.length; c++) {
+      var cat = categories[c];
+      if (cat.items.length === 0) continue;
+      var parts = ['<span class="legend-label">' + cat.label + ':</span>'];
+      for (var j = 0; j < cat.items.length; j++) {
+        var it = cat.items[j];
+        parts.push('<span class="legend-item"><span class="legend-icon" style="color:' +
+          it.color + '">' + it.symbol + '</span><span class="legend-name">' +
+          it.name + '</span></span>');
+      }
+      html.push('<span class="legend-group">' + parts.join('') + '</span>');
+    }
+    legendEl.innerHTML = html.join('<span class="legend-sep">|</span>');
+  },
+
+  // Compute borders at multiple hierarchy levels.
+  // For each tile edge, find the highest level at which the two tiles diverge.
+  // Higher-level borders are drawn thicker/darker.
   computeBorders: function() {
     var w = World.width, h = World.height;
     this.borderInfo = new Array(w * h);
 
+    // Pre-compute: for each tile, its ancestor group at each level
+    // tileAncestors[tileIdx][level] = groupId
+    var maxLvl = World.maxLevel;
+
     for (var i = 0; i < w * h; i++) {
       var x = i % w, y = Math.floor(i / w);
-      var myRegion = World.regionOfTile[i];
-      var info = { top: false, right: false, bottom: false, left: false, color: '#555' };
+      var info = { top: 0, right: 0, bottom: 0, left: 0 };
+      var myL1 = World.groupOfTile[i];
 
-      // Check 4 neighbors
-      if (y > 0 && World.regionOfTile[(y-1)*w+x] !== myRegion) info.top = true;
-      if (x < w-1 && World.regionOfTile[y*w+x+1] !== myRegion) info.right = true;
-      if (y < h-1 && World.regionOfTile[(y+1)*w+x] !== myRegion) info.bottom = true;
-      if (x > 0 && World.regionOfTile[y*w+x-1] !== myRegion) info.left = true;
+      // Check each direction: find the highest divergence level
+      var dirs = [
+        { dx: 0, dy: -1, side: 'top' },
+        { dx: 1, dy: 0, side: 'right' },
+        { dx: 0, dy: 1, side: 'bottom' },
+        { dx: -1, dy: 0, side: 'left' }
+      ];
 
-      // Border color based on region type
-      var region = World.regions.get(myRegion);
-      if (region) {
-        if (region.type === 'water') info.color = '#2a5a8a';
-        else if (region.type === 'rock') info.color = '#606060';
-        else info.color = '#4a4a3a';
+      for (var d = 0; d < dirs.length; d++) {
+        var nx = x + dirs[d].dx, ny = y + dirs[d].dy;
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        var ni = ny * w + nx;
+        var nL1 = World.groupOfTile[ni];
+
+        if (myL1 === nL1 || myL1 < 0 || nL1 < 0) continue;
+
+        // Different L1 groups — find highest level where they diverge
+        // (i.e., the lowest common ancestor level)
+        var borderLevel = 1;
+        var myG = World.groups.get(myL1);
+        var nG = World.groups.get(nL1);
+        for (var lvl = 2; lvl <= maxLvl; lvl++) {
+          if (!myG || !nG) break;
+          var myParent = myG.parentGroup;
+          var nParent = nG.parentGroup;
+          if (myParent !== nParent) {
+            borderLevel = lvl;
+          }
+          myG = World.groups.get(myParent);
+          nG = World.groups.get(nParent);
+        }
+        info[dirs[d].side] = borderLevel;
       }
 
       this.borderInfo[i] = info;
@@ -76,89 +146,128 @@ var Renderer = {
   },
 
   applyBorders: function() {
+    var maxLvl = World.maxLevel;
     for (var i = 0; i < this.borderInfo.length; i++) {
       var info = this.borderInfo[i];
       var span = this.cells[i];
       var hasBorder = info.top || info.right || info.bottom || info.left;
       if (hasBorder) {
-        span.style.borderTop = info.top ? '1px solid ' + info.color : 'none';
-        span.style.borderRight = info.right ? '1px solid ' + info.color : 'none';
-        span.style.borderBottom = info.bottom ? '1px solid ' + info.color : 'none';
-        span.style.borderLeft = info.left ? '1px solid ' + info.color : 'none';
+        span.style.borderTop = info.top ? this.borderStyle(info.top, maxLvl) : 'none';
+        span.style.borderRight = info.right ? this.borderStyle(info.right, maxLvl) : 'none';
+        span.style.borderBottom = info.bottom ? this.borderStyle(info.bottom, maxLvl) : 'none';
+        span.style.borderLeft = info.left ? this.borderStyle(info.left, maxLvl) : 'none';
       }
     }
+  },
+
+  // Border style by hierarchy level: higher level = thicker + darker
+  borderStyle: function(level, maxLevel) {
+    if (level <= 1) return '1px solid rgba(80,80,60,0.3)';
+    if (level === 2) return '1px solid rgba(80,80,60,0.6)';
+    if (level >= maxLevel) return '2px solid rgba(60,60,40,0.9)';
+    return '1px solid rgba(70,70,50,0.75)';
   },
 
   draw: function() {
     var w = World.width, h = World.height;
 
-    // Build a map: tileIndex → list of groups whose spread covers this tile
-    var tileGroups = {};  // tileIndex → [{node, tmpl}]
+    // Collect all visible groups with their spread tiles
+    var allGroups = [];
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
-      // Skip structural nodes (terrain tiles, regions) and carried items
-      if (tmpl.category === 'terrain' || tmpl.category === 'region') return;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
       if (node.containedBy) return;
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
       var x0 = Math.max(0, cx - r), x1 = Math.min(w - 1, cx + r);
       var y0 = Math.max(0, cy - r), y1 = Math.min(h - 1, cy + r);
+      var tiles = [];
       for (var ty = y0; ty <= y1; ty++) {
         for (var tx = x0; tx <= x1; tx++) {
           var idx = ty * w + tx;
-          // Only tint tiles in the same region
-          if (World.regionOfTile[idx] === node.container) {
-            if (!tileGroups[idx]) tileGroups[idx] = [];
-            tileGroups[idx].push({ node: node, tmpl: tmpl });
+          // Check if tile belongs to entity's container (works at any level)
+          if (World.tileInGroup(idx, node.container)) {
+            tiles.push(idx);
           }
         }
       }
+      if (tiles.length > 0) {
+        allGroups.push({ node: node, tmpl: tmpl, tiles: tiles, centerIdx: cy * w + cx });
+      }
     });
+
+    // Sort: biggest spread first (bottom layer), smallest on top
+    allGroups.sort(function(a, b) { return b.node.spread - a.node.spread; });
+
+    // Pick icon tiles for each group
+    var iconAt = {};
+    var tintAt = {};
+    for (var gi = 0; gi < allGroups.length; gi++) {
+      var g = allGroups[gi];
+      var node = g.node, tmpl = g.tmpl, tiles = g.tiles;
+      var cx = node.center.x, cy = node.center.y;
+
+      for (var ti = 0; ti < tiles.length; ti++) {
+        if (!tintAt[tiles[ti]]) tintAt[tiles[ti]] = { tmpl: tmpl };
+      }
+
+      iconAt[g.centerIdx] = { node: node, tmpl: tmpl, isCenter: true };
+
+      var numExtra = Math.min(Math.floor(node.count) - 1, tiles.length - 1);
+      if (numExtra > 0) {
+        var nonCenter = [];
+        for (var ti = 0; ti < tiles.length; ti++) {
+          if (tiles[ti] !== g.centerIdx) nonCenter.push(tiles[ti]);
+        }
+        nonCenter.sort(function(a, b) {
+          var ax = a % w - cx, ay = Math.floor(a / w) - cy;
+          var bx = b % w - cx, by = Math.floor(b / w) - cy;
+          return (ax * ax + ay * ay) - (bx * bx + by * by);
+        });
+        var step = nonCenter.length / numExtra;
+        for (var ei = 0; ei < numExtra; ei++) {
+          var idx = nonCenter[Math.floor(ei * step)];
+          iconAt[idx] = { node: node, tmpl: tmpl, isCenter: false };
+        }
+      }
+    }
 
     // Render each tile
     for (var i = 0; i < w * h; i++) {
       var tile = World.tiles[i];
       var tileType = TILE_TYPES[tile.type];
       var span = this.cells[i];
+      var icon = iconAt[i];
+      var tint = tintAt[i];
 
-      var groups = tileGroups[i];
-      if (groups && groups.length > 0) {
-        // Find highest priority group on this tile
-        var best = groups[0];
-        for (var g = 1; g < groups.length; g++) {
-          if (groups[g].tmpl.renderPriority > best.tmpl.renderPriority) {
-            best = groups[g];
+      if (icon && icon.isCenter) {
+        var label = icon.tmpl.symbol + Math.floor(icon.node.count);
+        for (var ci = 0; ci < icon.node.contains.length; ci++) {
+          var carried = World.nodes.get(icon.node.contains[ci]);
+          if (carried && carried.alive) {
+            label += TEMPLATES[carried.templateId].symbol;
           }
         }
-
-        // Is this the center tile of the best group? Show icon + count
-        var node = best.node;
-        if (Math.abs(node.center.x - (i % w)) <= 0 && Math.abs(node.center.y - Math.floor(i / w)) <= 0) {
-          var label = best.tmpl.symbol + node.count;
-          // Show contained items small on top of carrier
-          for (var ci = 0; ci < node.contains.length; ci++) {
-            var carried = World.nodes.get(node.contains[ci]);
-            if (carried && carried.alive) {
-              label += TEMPLATES[carried.templateId].symbol;
-            }
-          }
-          span.textContent = label;
-          span.style.color = best.tmpl.color;
-        } else {
-          // Spread tile: just tint
-          span.textContent = tileType.symbol;
-          span.style.color = best.tmpl.color;
-        }
-        // Tinted background
-        span.style.backgroundColor = this.tintColor(tileType.bg, best.tmpl.color, 0.25);
-        span.style.opacity = 1;
+        span.textContent = label;
+        span.style.color = icon.tmpl.color;
+        span.style.backgroundColor = this.tintColor(tileType.bg, icon.tmpl.color, 0.25);
+      } else if (icon) {
+        span.textContent = icon.tmpl.symbol;
+        span.style.color = icon.tmpl.color;
+        span.style.backgroundColor = tint
+          ? this.tintColor(tileType.bg, tint.tmpl.color, 0.25)
+          : tileType.bg;
+      } else if (tint) {
+        span.textContent = tileType.symbol;
+        span.style.color = tint.tmpl.color;
+        span.style.backgroundColor = this.tintColor(tileType.bg, tint.tmpl.color, 0.25);
       } else {
         span.textContent = tileType.symbol;
         span.style.color = tileType.color;
         span.style.backgroundColor = tileType.bg;
-        span.style.opacity = 1;
       }
+      span.style.opacity = 1;
     }
 
     this.tickEl.textContent = World.tick;
@@ -166,7 +275,6 @@ var Renderer = {
     if (this.selectedNode) this.updateInspector();
   },
 
-  // Blend two hex colors
   tintColor: function(baseCss, tintCss, amount) {
     var b = this.parseHex(baseCss);
     var t = this.parseHex(tintCss);
@@ -193,8 +301,8 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (node.alive) {
         var tmpl = TEMPLATES[node.templateId];
-        if (tmpl.category !== 'terrain' && tmpl.category !== 'region') {
-          counts[node.templateId] = (counts[node.templateId] || 0) + node.count;
+        if (tmpl.category !== 'terrain' && tmpl.category !== 'tilegroup') {
+          counts[node.templateId] = (counts[node.templateId] || 0) + Math.floor(node.count);
         }
       }
     });
@@ -203,7 +311,7 @@ var Renderer = {
     for (var i = 0; i < templateNames.length; i++) {
       var name = templateNames[i];
       var tmpl = TEMPLATES[name];
-      if (tmpl.category === 'terrain' || tmpl.category === 'region') continue;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') continue;
       parts.push('<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span>' + counts[name]);
     }
     this.statsEl.innerHTML = parts.join(' ');
@@ -211,11 +319,10 @@ var Renderer = {
 
   inspect: function(x, y) {
     var tile = World.tileAt(x, y);
-    var regionId = World.regionOfTile[y * World.width + x];
-    var groups = World.groupsInRegion(regionId);
+    var groupId = World.groupOfTile[y * World.width + x];
+    var groups = World.groupsInContainer(groupId);
 
     if (groups.length > 0) {
-      // Pick the group closest to clicked tile
       var best = groups[0];
       var bestDist = Math.abs(best.center.x - x) + Math.abs(best.center.y - y);
       for (var i = 1; i < groups.length; i++) {
@@ -226,10 +333,19 @@ var Renderer = {
       this.updateInspector();
     } else {
       this.selectedNode = null;
-      var region = World.regions.get(regionId);
+      var group = World.groups.get(groupId);
+      // Show hierarchy info
+      var hierParts = [];
+      var g = group;
+      while (g) {
+        hierParts.push('L' + g.level + '#' + g.id + '(' + g.tileCount + ')');
+        g = g.parentGroup ? World.groups.get(g.parentGroup) : null;
+      }
+      var linkCount = group && group.links ? Object.keys(group.links).length : 0;
       this.inspectorEl.innerHTML = '<b>Tile</b> (' + x + ',' + y + ') ' + tile.type +
-        ' | region #' + regionId + ' (' + (region ? region.tileCount : '?') + ' tiles)' +
-        ' | fertility: ' + tile.fertility.toFixed(2);
+        ' | ' + hierParts.join(' → ') +
+        ' | fertility: ' + tile.fertility.toFixed(2) +
+        ' | links: ' + linkCount;
     }
   },
 
@@ -241,12 +357,22 @@ var Renderer = {
       return;
     }
     var tmpl = TEMPLATES[n.templateId];
+    var containerGroup = World.groups.get(n.container);
+    var containerLabel = n.container;
+    if (containerGroup) {
+      containerLabel = 'L' + containerGroup.level + '#' + n.container + '(' + containerGroup.tileCount + 't)';
+    }
     var parts = ['<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
-      ' | count:' + n.count + ' | container:' + n.container];
+      ' | count:' + Math.floor(n.count) + ' | container:' + containerLabel];
 
     if (n.traits.vitals) {
       var v = n.traits.vitals;
       parts.push('hunger:' + Math.round(v.hunger) + ' energy:' + Math.round(v.energy));
+    }
+    if (n.position && n.position.target !== null) {
+      var posAt = n.position.at === 'center' ? 'C' : '#' + n.position.at;
+      var posTo = n.position.target === 'center' ? 'C' : '#' + n.position.target;
+      parts.push('pos:' + posAt + '→' + posTo + ' ' + Math.round(n.position.progress * 100) + '%');
     }
     if (n.traits.agency) {
       var a = n.traits.agency;
@@ -264,7 +390,7 @@ var Renderer = {
       var inv = [];
       for (var c = 0; c < n.contains.length; c++) {
         var item = World.nodes.get(n.contains[c]);
-        if (item && item.alive) inv.push(item.templateId + ':' + item.count);
+        if (item && item.alive) inv.push(item.templateId + ':' + Math.floor(item.count));
       }
       if (inv.length > 0) parts.push('carries[' + inv.join(' ') + ']');
     }

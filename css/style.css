@@ -85,6 +85,51 @@ h1 {
   margin-right: 1px;
 }
 
+/* Legend */
+#legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  justify-content: center;
+  max-width: 960px;
+}
+
+#legend .legend-group {
+  display: flex;
+  align-items: center;
+  gap: 4px 8px;
+  flex-wrap: wrap;
+}
+
+#legend .legend-label {
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  margin-right: 2px;
+}
+
+#legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+#legend .legend-icon {
+  font-size: 13px;
+}
+
+#legend .legend-name {
+  color: #a0a0b0;
+}
+
+#legend .legend-sep {
+  color: #444;
+  margin: 0 2px;
+}
+
 /* Grid */
 #grid {
   display: grid;
