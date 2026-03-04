@@ -115,6 +115,11 @@ h1 {
   align-items: center;
   gap: 3px;
   white-space: nowrap;
+  cursor: help;
+}
+
+#legend .legend-item:hover {
+  color: #fff;
 }
 
 #legend .legend-icon {

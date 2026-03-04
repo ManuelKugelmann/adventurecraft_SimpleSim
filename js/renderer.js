@@ -72,7 +72,23 @@ var Renderer = {
       var catIdx = catMap[tmpl.category];
       if (catIdx === undefined) continue;
       var displayName = name.replace(/^tile_/, '');
-      categories[catIdx].items.push({ name: displayName, symbol: tmpl.symbol, color: tmpl.color });
+
+      // Build tooltip from template properties
+      var tipParts = [displayName];
+      if (tmpl.defaultCount > 1) tipParts.push('group size: ' + tmpl.defaultCount);
+      if (tmpl.strength > 0) tipParts.push('strength: ' + tmpl.strength);
+      if (tmpl.traits.diet) {
+        if (tmpl.traits.diet.eats.length > 0) tipParts.push('eats: ' + tmpl.traits.diet.eats.join(', '));
+        if (tmpl.traits.diet.eatenBy.length > 0) tipParts.push('eaten by: ' + tmpl.traits.diet.eatenBy.join(', '));
+      }
+      if (tmpl.traits.agency) tipParts.push('role: ' + tmpl.traits.agency.activeRole);
+      if (tmpl.traits.spatial) tipParts.push('speed: ' + tmpl.traits.spatial.speed);
+      if (tmpl.traits.group) tipParts.push('max group: ' + tmpl.traits.group.maxSize);
+
+      categories[catIdx].items.push({
+        name: displayName, symbol: tmpl.symbol, color: tmpl.color,
+        tooltip: tipParts.join('\n')
+      });
     }
 
     var html = [];
@@ -82,7 +98,8 @@ var Renderer = {
       var parts = ['<span class="legend-label">' + cat.label + ':</span>'];
       for (var j = 0; j < cat.items.length; j++) {
         var it = cat.items[j];
-        parts.push('<span class="legend-item"><span class="legend-icon" style="color:' +
+        parts.push('<span class="legend-item" title="' + it.tooltip.replace(/"/g, '&quot;') +
+          '"><span class="legend-icon" style="color:' +
           it.color + '">' + it.symbol + '</span><span class="legend-name">' +
           it.name + '</span></span>');
       }
@@ -385,6 +402,18 @@ var Renderer = {
         for (var s = 0; s < sk.length; s++) sp.push(sk[s] + ':' + a.actionSpread[sk[s]]);
         if (sp.length > 0) parts.push('spread[' + sp.join(' ') + ']');
       }
+    }
+    if (n.traits.group) {
+      var gr = n.traits.group;
+      var groupParts = ['maxSize:' + gr.maxSize, 'mergeThresh:' + gr.mergeThreshold];
+      // Count how many same-species nodes share this container
+      var siblings = World.groupsInContainer(n.container);
+      var sameSpecies = 0;
+      for (var si = 0; si < siblings.length; si++) {
+        if (siblings[si].templateId === n.templateId && siblings[si].alive) sameSpecies++;
+      }
+      if (sameSpecies > 1) groupParts.push('herds:' + sameSpecies);
+      parts.push('group[' + groupParts.join(' ') + ']');
     }
     if (n.contains && n.contains.length > 0) {
       var inv = [];
