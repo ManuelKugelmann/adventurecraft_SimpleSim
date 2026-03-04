@@ -351,8 +351,7 @@ function wander(node) {
   if (neighbors.length === 0) return;
   var target = neighbors[Math.floor(Math.random() * neighbors.length)];
   tryPickup(node);
-  World.moveGroup(node, target);
-  dropContained(node);
+  World.startMove(node, target);
   node.traits.vitals.energy -= 0.5;
   node.traits.agency.lastAction = 'wander';
 }

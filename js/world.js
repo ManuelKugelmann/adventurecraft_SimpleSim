@@ -52,6 +52,7 @@ var World = {
     this.generateLevel1();
     this.buildLevel1Adjacency();
     this.generateHigherLevels();
+    this.computeAllLinks();
   },
 
   tileIndex: function(x, y) { return y * this.width + x; },
@@ -175,6 +176,235 @@ var World = {
     return result;
   },
 
+  // --- Link graph: connection graph per group ---
+
+  // Compute links for all groups at all levels
+  computeAllLinks: function() {
+    var self = this;
+    this.groups.forEach(function(group) {
+      self.computeGroupLinks(group);
+    });
+  },
+
+  // Compute links for a single group: for each neighbor, find border tiles,
+  // compute centroid position, distance from center, and effort
+  computeGroupLinks: function(group) {
+    group.links = {};
+    var self = this;
+
+    for (var ni = 0; ni < group.neighbors.length; ni++) {
+      var neighborId = group.neighbors[ni];
+      var neighbor = this.groups.get(neighborId);
+      if (!neighbor) continue;
+
+      // Find border tile pairs between this group and neighbor
+      var borderTiles = [];
+      var myTiles = group.tiles;
+      var nTiles = neighbor.tiles;
+
+      // Build a set of neighbor's tiles for quick lookup
+      var nTileSet = {};
+      for (var t = 0; t < nTiles.length; t++) {
+        nTileSet[nTiles[t]] = true;
+      }
+
+      // Find tiles in this group that are adjacent to tiles in neighbor
+      var dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      for (var t = 0; t < myTiles.length; t++) {
+        var ti = myTiles[t];
+        var tx = ti % self.width;
+        var ty = Math.floor(ti / self.width);
+        for (var d = 0; d < dirs.length; d++) {
+          var nx = tx + dirs[d][0], ny = ty + dirs[d][1];
+          if (nx < 0 || nx >= self.width || ny < 0 || ny >= self.height) continue;
+          var nIdx = ny * self.width + nx;
+          if (nTileSet[nIdx]) {
+            borderTiles.push(ti);
+            break; // only add this tile once
+          }
+        }
+      }
+
+      if (borderTiles.length === 0) {
+        // Higher-level groups: use centroid between group centers
+        var lx = Math.round((group.center.x + neighbor.center.x) / 2);
+        var ly = Math.round((group.center.y + neighbor.center.y) / 2);
+        var dist = Math.abs(group.center.x - lx) + Math.abs(group.center.y - ly);
+        group.links[neighborId] = {
+          pos: { x: lx, y: ly },
+          dist: Math.max(1, dist),
+          effort: Math.max(1, dist)
+        };
+        continue;
+      }
+
+      // Centroid of border tiles
+      var cx = 0, cy = 0;
+      for (var b = 0; b < borderTiles.length; b++) {
+        cx += borderTiles[b] % self.width;
+        cy += Math.floor(borderTiles[b] / self.width);
+      }
+      cx = Math.round(cx / borderTiles.length);
+      cy = Math.round(cy / borderTiles.length);
+
+      // Distance from group center to link position
+      var dist = Math.abs(group.center.x - cx) + Math.abs(group.center.y - cy);
+
+      // Effort: base distance, increased for difficult terrain
+      var effort = Math.max(1, dist);
+      if (group.type === 'dirt') effort = Math.ceil(effort * 1.2);
+
+      group.links[neighborId] = {
+        pos: { x: cx, y: cy },
+        dist: Math.max(1, dist),
+        effort: effort
+      };
+    }
+  },
+
+  // Distance between two points on a group's graph (link or center)
+  // fromId/toId: 'center' or neighborId
+  groupDist: function(group, fromId, toId) {
+    if (fromId === toId) return 0;
+    if (fromId === 'center' && group.links[toId]) return group.links[toId].dist;
+    if (toId === 'center' && group.links[fromId]) return group.links[fromId].dist;
+    // Link-to-link: sum of distances through center
+    var dFrom = group.links[fromId] ? group.links[fromId].dist : 1;
+    var dTo = group.links[toId] ? group.links[toId].dist : 1;
+    return dFrom + dTo;
+  },
+
+  // --- Gradual movement system ---
+
+  // Initiate gradual movement toward a neighbor group
+  startMove: function(node, neighborId) {
+    var group = this.groups.get(node.container);
+    if (!group || !group.links[neighborId]) return false;
+    node.position.target = neighborId;
+    // If at center, move toward the link; if at a link, move toward center first
+    if (node.position.at !== 'center') {
+      // At some link; need to go through center first
+      node.position.target = 'center';
+      node._pendingMove = neighborId; // remember final destination
+    }
+    node.position.progress = 0;
+    return true;
+  },
+
+  // Per-tick: advance all moving entities along graph edges
+  advancePositions: function() {
+    var self = this;
+    this.nodes.forEach(function(node) {
+      if (!node.alive || node.position.target === null) return;
+      var tmpl = TEMPLATES[node.templateId];
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
+      if (node.containedBy) return; // carried items don't move independently
+
+      var group = self.groups.get(node.container);
+      if (!group) { node.position.target = null; return; }
+
+      var speed = (node.traits.spatial ? node.traits.spatial.speed : 1);
+      var dist = self.groupDist(group, node.position.at, node.position.target);
+      var step = speed / Math.max(1, dist);
+      node.position.progress += step;
+
+      if (node.position.progress >= 1.0) {
+        // Arrived at target
+        node.position.at = node.position.target;
+        node.position.target = null;
+        node.position.progress = 0;
+
+        if (node.position.at === 'center') {
+          // Arrived at center — drop carried items, check pending move
+          if (node.contains && node.contains.length > 0) {
+            dropContained(node);
+          }
+          if (node._pendingMove) {
+            var pendingNeighbor = node._pendingMove;
+            delete node._pendingMove;
+            node.position.target = pendingNeighbor;
+            node.position.progress = 0;
+          }
+        } else {
+          // Arrived at a link to a neighbor — cross into that neighbor
+          var neighborId = node.position.at;
+          var myGroupId = node.container;
+          self.transferToGroup(node, neighborId);
+          // In the new group, position starts at the link back to old group, heading to center
+          node.position.at = myGroupId;
+          node.position.target = 'center';
+          node.position.progress = 0;
+        }
+
+        self.updateNodeCenter(node);
+      } else {
+        self.updateNodeCenter(node);
+      }
+    });
+  },
+
+  // Transfer entity to a new container (used by movement system)
+  transferToGroup: function(node, newContainerId) {
+    // Remove from old container
+    if (node.container !== null) {
+      var oldSet = this.byGroup.get(node.container);
+      if (oldSet) oldSet.delete(node.id);
+    }
+    // Add to new container
+    node.container = newContainerId;
+    node.parent = newContainerId;
+    if (!this.byGroup.has(newContainerId)) this.byGroup.set(newContainerId, new Set());
+    this.byGroup.get(newContainerId).add(node.id);
+    // Contained items follow carrier
+    for (var i = 0; i < node.contains.length; i++) {
+      var item = this.nodes.get(node.contains[i]);
+      if (item) item.container = newContainerId;
+    }
+  },
+
+  // Interpolate center {x,y} from graph position (at, target, progress)
+  updateNodeCenter: function(node) {
+    var group = this.groups.get(node.container);
+    if (!group) return;
+
+    var fromPos, toPos;
+
+    // Resolve 'from' position
+    if (node.position.at === 'center') {
+      fromPos = group.center;
+    } else if (group.links[node.position.at]) {
+      fromPos = group.links[node.position.at].pos;
+    } else {
+      fromPos = group.center;
+    }
+
+    // If not moving, snap to 'from'
+    if (node.position.target === null) {
+      node.center.x = fromPos.x;
+      node.center.y = fromPos.y;
+      return;
+    }
+
+    // Resolve 'to' position
+    if (node.position.target === 'center') {
+      toPos = group.center;
+    } else if (group.links[node.position.target]) {
+      toPos = group.links[node.position.target].pos;
+    } else {
+      toPos = group.center;
+    }
+
+    // Interpolate
+    var p = node.position.progress;
+    node.center.x = Math.round(fromPos.x + (toPos.x - fromPos.x) * p);
+    node.center.y = Math.round(fromPos.y + (toPos.y - fromPos.y) * p);
+  },
+
+  // Check if entity is currently in transit
+  isMoving: function(node) {
+    return node.position.target !== null;
+  },
+
   // --- Group operations ---
 
   spawnGroup: function(templateId, containerId) {
@@ -203,6 +433,11 @@ var World = {
     var group = this.groups.get(newContainerId);
     node.center.x = group.center.x;
     node.center.y = group.center.y;
+    // Reset position to center (teleport)
+    node.position.at = 'center';
+    node.position.target = null;
+    node.position.progress = 0;
+    delete node._pendingMove;
     if (!this.byGroup.has(newContainerId)) this.byGroup.set(newContainerId, new Set());
     this.byGroup.get(newContainerId).add(node.id);
     // Contained items follow carrier's container

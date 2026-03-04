@@ -341,9 +341,11 @@ var Renderer = {
         hierParts.push('L' + g.level + '#' + g.id + '(' + g.tileCount + ')');
         g = g.parentGroup ? World.groups.get(g.parentGroup) : null;
       }
+      var linkCount = group && group.links ? Object.keys(group.links).length : 0;
       this.inspectorEl.innerHTML = '<b>Tile</b> (' + x + ',' + y + ') ' + tile.type +
         ' | ' + hierParts.join(' → ') +
-        ' | fertility: ' + tile.fertility.toFixed(2);
+        ' | fertility: ' + tile.fertility.toFixed(2) +
+        ' | links: ' + linkCount;
     }
   },
 
@@ -366,6 +368,11 @@ var Renderer = {
     if (n.traits.vitals) {
       var v = n.traits.vitals;
       parts.push('hunger:' + Math.round(v.hunger) + ' energy:' + Math.round(v.energy));
+    }
+    if (n.position && n.position.target !== null) {
+      var posAt = n.position.at === 'center' ? 'C' : '#' + n.position.at;
+      var posTo = n.position.target === 'center' ? 'C' : '#' + n.position.target;
+      parts.push('pos:' + posAt + '→' + posTo + ' ' + Math.round(n.position.progress * 100) + '%');
     }
     if (n.traits.agency) {
       var a = n.traits.agency;

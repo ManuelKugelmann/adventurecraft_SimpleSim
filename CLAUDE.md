@@ -55,7 +55,7 @@ The WIP spec defines the full architecture. This prototype implements:
 index.html          Entry point, grid container, controls
 js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES (all entity definitions)
 js/node.js          createNode(), computeSpread() — node factory
-js/world.js         World object: tile grid, recursive hierarchy, nodes map, spawn/move/remove
+js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
 js/rules.js         Rules.biology() — hunger, growth, reproduction, starvation, seed drop
 js/roles.js         Roles.evaluate() — role definitions, compound/placeholder execution
 js/planner.js       Planner — multi-step processes (flee, findFood, huntPrey)
@@ -76,21 +76,43 @@ Spatial hierarchy (recursive tile grouping):
 - Level 2 = groups of 3-5 L1 groups
 - Level 3+ = continues recursively until map is covered (~4 levels for 80x80)
 
-Entity container can point to any level. Position is always tile-level `center:{x,y}`.
+Entity container can point to any level. Position is graph-based within the container,
+`center:{x,y}` is derived by interpolation.
 
 ```
 Node {
     id, templateId, count,
     container,      // group ID at any hierarchy level
     parent,         // grouping hierarchy parent
-    center: {x,y},  // tile-level position (always fine-grained)
+    center: {x,y},  // tile-level position (derived from graph position)
     spread,         // visual radius in tiles
     alive,
     contains: [],   // IDs of nodes I carry
     containedBy,    // ID of node carrying me, or null
+    position: {     // graph position within container
+      at,           // 'center' or neighborId (current location on graph)
+      target,       // null (stationary), 'center', or neighborId (destination)
+      progress      // 0.0-1.0 (fraction of edge traversed)
+    },
     traits: {}      // vitals, diet, agency, spatial, group
 }
 ```
+
+### Connection Graph (Links)
+
+Each tile group has a `links` map connecting it to its neighbors:
+```
+group.links[neighborId] = {
+    pos: {x,y},  // centroid of border tiles between groups
+    dist,        // Manhattan distance from center to link
+    effort       // traversal effort (dist * terrain modifier)
+}
+```
+
+Movement is gradual: `startMove(node, neighborId)` initiates traversal along
+graph edges. Entity moves center→link, crosses to neighbor, then link→center.
+`advancePositions()` runs each tick to advance all moving entities.
+Role evaluation is skipped while an entity is in transit.
 
 ### Template Categories
 

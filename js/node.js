@@ -15,12 +15,13 @@ function createNode(templateId) {
     templateId: templateId,
     count: template.defaultCount || 1,
     container: null,        // group ID this node occupies (any hierarchy level)
-    center: { x: 0, y: 0 }, // rough center position (tile coords)
+    center: { x: 0, y: 0 }, // tile-level position (derived from position on graph)
     spread: 1,              // radius in tiles (visual coverage)
     alive: true,
     parent: null,           // organizational hierarchy
     contains: [],           // node IDs contained by this node (carried items)
     containedBy: null,      // node ID of carrier, or null if free
+    position: { at: 'center', target: null, progress: 0 }, // graph position within container
     traits: {},
   };
 

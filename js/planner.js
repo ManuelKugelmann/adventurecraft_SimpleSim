@@ -71,7 +71,7 @@ var PROCESSES = {
 
   findFood: {
     init: function(node) {
-      // Scan neighbor regions for plant food
+      // Scan neighbor groups for plant food
       var target = findFoodNearby(node);
       if (!target) {
         return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
@@ -79,12 +79,16 @@ var PROCESSES = {
       return {
         steps: [
           { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
-            World.moveGroup(n, target);
-            dropContained(n);
+            World.startMove(n, target);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-food';
+            return 'continue';
+          }},
+          { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
             return 'done';
           }},
           { valid: function(n) { return foodInContainer(n) !== null; },
@@ -97,7 +101,7 @@ var PROCESSES = {
 
   huntPrey: {
     init: function(node) {
-      // Scan neighbor regions for prey
+      // Scan neighbor groups for prey
       var target = findPreyNearby(node);
       if (!target) {
         return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
@@ -105,12 +109,16 @@ var PROCESSES = {
       return {
         steps: [
           { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
-            World.moveGroup(n, target);
-            dropContained(n);
+            World.startMove(n, target);
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-prey';
+            return 'continue';
+          }},
+          { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
             return 'done';
           }},
           { valid: function(n) { return preyInContainer(n) !== null; },
@@ -154,8 +162,7 @@ function fleeContainer(node) {
   if (best !== null) {
     if (stoneMoveBlocked(node)) return 'done';
     tryPickup(node);
-    World.moveGroup(node, best);
-    dropContained(node);
+    World.startMove(node, best);
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
   }
