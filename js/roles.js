@@ -493,9 +493,9 @@ function stonesInRegion(regionId) {
 }
 
 function stoneMoveBlocked(node) {
-  var region = World.regions.get(node.container);
-  if (!region) return false;
-  var density = stonesInRegion(node.container) / region.tileCount;
+  var group = World.groups.get(node.container);
+  if (!group) return false;
+  var density = stonesInRegion(node.container) / group.tileCount;
   if (density >= CONFIG.STONE_BLOCK_PER_TILE) {
     node.traits.vitals.energy -= 0.5;
     node.traits.agency.lastAction = 'blocked-stones';

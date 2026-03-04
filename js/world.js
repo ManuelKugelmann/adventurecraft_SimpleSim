@@ -1,28 +1,50 @@
-// world.js — Tile grid + Region graph + Group containment
+// world.js — Tile grid + Recursive hierarchy + Group containment
 // All entities are nodes. Two hierarchies:
-//   parent:    grouping (multiscale sim) — tiles parented to regions, groups parented to regions
-//   contains/containedBy: structural (transport) — animals containing carried items
+//   parent:              grouping (multiscale sim) — tiles→L1 group→L2 group→...
+//   contains/containedBy: structural (transport)   — animals containing carried items
+//
+// Spatial hierarchy (recursive tile grouping):
+//   Level 0 = individual tiles (80x80)
+//   Level 1 = tile groups (16-25 tiles each, same terrain type, flood-fill)
+//   Level 2 = groups of 3-5 L1 groups
+//   Level 3 = groups of 3-5 L2 groups ... until map is covered
+//
+// Entity container can point to any level. Position is always tile-level center:{x,y}.
 
 var World = {
   width: 0,
   height: 0,
   tiles: null,           // flat array of tile nodes (80x80)
-  regionOfTile: null,    // flat array: tileIndex → regionId (node ID)
-  regions: null,         // Map<regionId, regionNode>
-  nodes: null,           // Map<nodeId, Node> (all nodes: tiles, regions, groups)
-  byRegion: null,        // Map<regionId, Set<nodeId>> (groups index)
+  groupOfTile: null,     // flat array: tileIndex → level-1 groupId
+  groups: null,          // Map<groupId, groupNode> (all hierarchy levels)
+  nodes: null,           // Map<nodeId, Node> (all nodes: tiles, groups, entities)
+  byGroup: null,         // Map<groupId, Set<nodeId>> (entity index, any level)
+  levels: null,          // Array of arrays: levels[1] = [groupId,...], levels[2] = [...]
+  maxLevel: 0,           // highest level in hierarchy
   tick: 0,
+
+  // Backward-compat aliases (set in init)
+  regions: null,
+  byRegion: null,
+  regionOfTile: null,
 
   init: function(w, h) {
     this.width = w;
     this.height = h;
     this.tiles = new Array(w * h);
-    this.regionOfTile = new Array(w * h);
-    this.regions = new Map();
+    this.groupOfTile = new Array(w * h);
+    this.groups = new Map();
     this.nodes = new Map();
-    this.byRegion = new Map();
+    this.byGroup = new Map();
+    this.levels = [null]; // level 0 = tiles (not stored here)
+    this.maxLevel = 0;
     this.tick = 0;
     nextNodeId = 1;
+
+    // Backward-compat aliases
+    this.regions = this.groups;
+    this.byRegion = this.byGroup;
+    this.regionOfTile = this.groupOfTile;
 
     // Initialize all tiles as grass nodes
     for (var i = 0; i < w * h; i++) {
@@ -33,12 +55,13 @@ var World = {
       tile.fertility = 0.5 + Math.random() * 0.5;
       this.tiles[i] = tile;
       this.nodes.set(tile.id, tile);
-      this.regionOfTile[i] = -1;
+      this.groupOfTile[i] = -1;
     }
 
     this.generateTerrain();
-    this.generateRegions();
-    this.buildAdjacency();
+    this.generateLevel1();
+    this.buildLevel1Adjacency();
+    this.generateHigherLevels();
   },
 
   tileIndex: function(x, y) { return y * this.width + x; },
@@ -53,10 +76,58 @@ var World = {
     return tile && tile.type !== 'water' && tile.type !== 'rock';
   },
 
-  // --- Region queries ---
+  // --- Hierarchy queries ---
 
-  groupsInRegion: function(regionId) {
-    var ids = this.byRegion.get(regionId);
+  // Get the group node for a container ID (works at any level)
+  groupFor: function(containerId) {
+    return this.groups.get(containerId);
+  },
+
+  // Get the level-1 group containing a tile position
+  groupAtTile: function(x, y) {
+    if (x < 0 || x >= this.width || y < 0 || y >= this.height) return null;
+    var idx = y * this.width + x;
+    var gId = this.groupOfTile[idx];
+    return gId >= 0 ? this.groups.get(gId) : null;
+  },
+
+  // Walk up the hierarchy from a group to find its ancestor at a given level
+  ancestorAtLevel: function(groupId, targetLevel) {
+    var g = this.groups.get(groupId);
+    if (!g) return null;
+    while (g && g.level < targetLevel) {
+      g = this.groups.get(g.parentGroup);
+    }
+    return g;
+  },
+
+  // Get the level-1 group for any entity (regardless of its container level)
+  level1GroupOf: function(node) {
+    var idx = node.center.y * this.width + node.center.x;
+    if (idx < 0 || idx >= this.groupOfTile.length) return null;
+    var gId = this.groupOfTile[idx];
+    return gId >= 0 ? this.groups.get(gId) : null;
+  },
+
+  // Check if a tile belongs to a container group (at any level)
+  tileInGroup: function(tileIdx, groupId) {
+    var tileL1 = this.groupOfTile[tileIdx];
+    if (tileL1 < 0) return false;
+    if (tileL1 === groupId) return true;
+    // Walk up the hierarchy from the tile's L1 group
+    var g = this.groups.get(tileL1);
+    while (g && g.parentGroup !== null) {
+      if (g.parentGroup === groupId) return true;
+      g = this.groups.get(g.parentGroup);
+    }
+    return false;
+  },
+
+  // --- Container queries (work at any level) ---
+
+  // Entities directly in this container
+  groupsInContainer: function(containerId) {
+    var ids = this.byGroup.get(containerId);
     if (!ids) return [];
     var result = [];
     ids.forEach(function(id) {
@@ -66,17 +137,37 @@ var World = {
     return result;
   },
 
-  neighborsOf: function(regionId) {
-    var r = this.regions.get(regionId);
-    return r ? r.neighbors : [];
+  // Entities in this container AND all descendant containers
+  groupsInContainerDeep: function(containerId) {
+    var result = this.groupsInContainer(containerId);
+    var group = this.groups.get(containerId);
+    if (group && group.children) {
+      for (var i = 0; i < group.children.length; i++) {
+        var childResults = this.groupsInContainerDeep(group.children[i]);
+        for (var j = 0; j < childResults.length; j++) {
+          result.push(childResults[j]);
+        }
+      }
+    }
+    return result;
   },
 
-  // All groups in this region + all neighbor regions
-  groupsNearRegion: function(regionId) {
-    var result = this.groupsInRegion(regionId);
-    var neighbors = this.neighborsOf(regionId);
+  // Backward compat: groupsInRegion = groupsInContainer
+  groupsInRegion: function(containerId) {
+    return this.groupsInContainer(containerId);
+  },
+
+  neighborsOf: function(containerId) {
+    var g = this.groups.get(containerId);
+    return g ? g.neighbors : [];
+  },
+
+  // All entities in this container + all neighbor containers (deep)
+  groupsNearContainer: function(containerId) {
+    var result = this.groupsInContainerDeep(containerId);
+    var neighbors = this.neighborsOf(containerId);
     for (var i = 0; i < neighbors.length; i++) {
-      var nearby = this.groupsInRegion(neighbors[i]);
+      var nearby = this.groupsInContainerDeep(neighbors[i]);
       for (var j = 0; j < nearby.length; j++) {
         result.push(nearby[j]);
       }
@@ -84,13 +175,18 @@ var World = {
     return result;
   },
 
-  // Walkable neighbor regions
-  walkableNeighbors: function(regionId) {
-    var neighbors = this.neighborsOf(regionId);
+  // Backward compat
+  groupsNearRegion: function(containerId) {
+    return this.groupsNearContainer(containerId);
+  },
+
+  // Walkable neighbor groups at same level as given container
+  walkableNeighbors: function(containerId) {
+    var neighbors = this.neighborsOf(containerId);
     var result = [];
     for (var i = 0; i < neighbors.length; i++) {
-      var r = this.regions.get(neighbors[i]);
-      if (r && r.type !== 'water' && r.type !== 'rock') {
+      var g = this.groups.get(neighbors[i]);
+      if (g && g.type !== 'water' && g.type !== 'rock') {
         result.push(neighbors[i]);
       }
     }
@@ -99,45 +195,45 @@ var World = {
 
   // --- Group operations ---
 
-  spawnGroup: function(templateId, regionId) {
+  spawnGroup: function(templateId, containerId) {
     var node = createNode(templateId);
-    var region = this.regions.get(regionId);
-    node.container = regionId;
-    node.parent = regionId;
-    node.center.x = region.center.x;
-    node.center.y = region.center.y;
+    var group = this.groups.get(containerId);
+    node.container = containerId;
+    node.parent = containerId;
+    node.center.x = group.center.x;
+    node.center.y = group.center.y;
     computeSpread(node);
     this.nodes.set(node.id, node);
-    if (!this.byRegion.has(regionId)) this.byRegion.set(regionId, new Set());
-    this.byRegion.get(regionId).add(node.id);
+    if (!this.byGroup.has(containerId)) this.byGroup.set(containerId, new Set());
+    this.byGroup.get(containerId).add(node.id);
     return node;
   },
 
-  moveGroup: function(node, newRegionId) {
-    // Remove from old region
+  moveGroup: function(node, newContainerId) {
+    // Remove from old container
     if (node.container !== null) {
-      var oldSet = this.byRegion.get(node.container);
+      var oldSet = this.byGroup.get(node.container);
       if (oldSet) oldSet.delete(node.id);
     }
-    // Add to new region
-    node.container = newRegionId;
-    node.parent = newRegionId;
-    var region = this.regions.get(newRegionId);
-    node.center.x = region.center.x;
-    node.center.y = region.center.y;
-    if (!this.byRegion.has(newRegionId)) this.byRegion.set(newRegionId, new Set());
-    this.byRegion.get(newRegionId).add(node.id);
-    // Contained items follow carrier's region
+    // Add to new container
+    node.container = newContainerId;
+    node.parent = newContainerId;
+    var group = this.groups.get(newContainerId);
+    node.center.x = group.center.x;
+    node.center.y = group.center.y;
+    if (!this.byGroup.has(newContainerId)) this.byGroup.set(newContainerId, new Set());
+    this.byGroup.get(newContainerId).add(node.id);
+    // Contained items follow carrier's container
     for (var i = 0; i < node.contains.length; i++) {
       var item = this.nodes.get(node.contains[i]);
-      if (item) item.container = newRegionId;
+      if (item) item.container = newContainerId;
     }
   },
 
   removeGroup: function(node) {
     node.alive = false;
     if (node.container !== null) {
-      var set = this.byRegion.get(node.container);
+      var set = this.byGroup.get(node.container);
       if (set) set.delete(node.id);
     }
     this.nodes.delete(node.id);
@@ -148,8 +244,8 @@ var World = {
     this.nodes.forEach(function(node) {
       if (!node.alive || node.count <= 0) {
         var tmpl = TEMPLATES[node.templateId];
-        // Don't remove structural nodes (terrain, regions)
-        if (tmpl.category === 'terrain' || tmpl.category === 'region') return;
+        // Don't remove structural nodes (terrain, regions, tilegroups)
+        if (tmpl.category === 'terrain' || tmpl.category === 'region' || tmpl.category === 'tilegroup') return;
         toRemove.push(node);
       }
     });
@@ -158,7 +254,7 @@ var World = {
     }
   },
 
-  // --- Terrain generation ---
+  // --- Terrain generation (unchanged) ---
 
   generateTerrain: function() {
     var self = this;
@@ -219,19 +315,22 @@ var World = {
     }
   },
 
-  // --- Region generation: partition tiles into contiguous blobs ---
+  // --- Level 1: partition tiles into contiguous same-type groups (16-25 tiles) ---
 
-  generateRegions: function() {
+  generateLevel1: function() {
     var self = this;
-    var assigned = new Uint8Array(this.width * this.height); // 0 = unassigned
+    var assigned = new Uint8Array(this.width * this.height);
+    var level1Ids = [];
 
-    // Flood-fill from an unassigned tile of given type to form a region
-    function floodRegion(startIdx) {
+    function floodGroup(startIdx) {
       var startTile = self.tiles[startIdx];
       var type = startTile.type;
-      var regionNode = createNode('region');
-      var regionId = regionNode.id;
-      regionNode.type = type;
+      var groupNode = createNode('region');
+      var groupId = groupNode.id;
+      groupNode.type = type;
+      groupNode.level = 1;
+      groupNode.children = [];
+      groupNode.parentGroup = null;
       var tileIndices = [];
       var queue = [startIdx];
       assigned[startIdx] = 1;
@@ -254,18 +353,17 @@ var World = {
         }
       }
 
-      // Split if too large
-      if (tileIndices.length > CONFIG.REGION_MAX_SIZE) {
-        var keep = tileIndices.slice(0, CONFIG.REGION_MAX_SIZE);
-        for (var i = CONFIG.REGION_MAX_SIZE; i < tileIndices.length; i++) {
+      // Split if too large: keep up to max, rest stays unassigned
+      if (tileIndices.length > CONFIG.HIERARCHY_L1_MAX) {
+        var keep = tileIndices.slice(0, CONFIG.HIERARCHY_L1_MAX);
+        for (var i = CONFIG.HIERARCHY_L1_MAX; i < tileIndices.length; i++) {
           assigned[tileIndices[i]] = 0;
         }
         tileIndices = keep;
       }
 
-      // Compute center
-      var cx = 0, cy = 0;
-      var totalFertility = 0;
+      // Compute center and fertility
+      var cx = 0, cy = 0, totalFertility = 0;
       for (var i = 0; i < tileIndices.length; i++) {
         var ti = tileIndices[i];
         cx += ti % self.width;
@@ -275,69 +373,70 @@ var World = {
       cx = Math.round(cx / tileIndices.length);
       cy = Math.round(cy / tileIndices.length);
 
-      // Set region node properties
-      regionNode.count = tileIndices.length;
-      regionNode.center.x = cx;
-      regionNode.center.y = cy;
-      regionNode.tiles = tileIndices;
-      regionNode.tileCount = tileIndices.length;
-      regionNode.neighbors = [];
-      regionNode.fertility = totalFertility / tileIndices.length;
-      computeSpread(regionNode);
+      groupNode.count = tileIndices.length;
+      groupNode.center.x = cx;
+      groupNode.center.y = cy;
+      groupNode.tiles = tileIndices;
+      groupNode.tileCount = tileIndices.length;
+      groupNode.neighbors = [];
+      groupNode.fertility = totalFertility / tileIndices.length;
+      computeSpread(groupNode);
 
-      // Grouping hierarchy: tiles parented to region
+      // Tiles parented to this group
       for (var i = 0; i < tileIndices.length; i++) {
         var tileNode = self.tiles[tileIndices[i]];
-        tileNode.parent = regionId;
-        tileNode.container = regionId;
+        tileNode.parent = groupId;
+        tileNode.container = groupId;
       }
 
-      self.regions.set(regionId, regionNode);
-      self.nodes.set(regionId, regionNode);
-      self.byRegion.set(regionId, new Set());
+      self.groups.set(groupId, groupNode);
+      self.nodes.set(groupId, groupNode);
+      self.byGroup.set(groupId, new Set());
 
-      // Tag tiles with region index
       for (var i = 0; i < tileIndices.length; i++) {
-        self.regionOfTile[tileIndices[i]] = regionId;
+        self.groupOfTile[tileIndices[i]] = groupId;
       }
+
+      level1Ids.push(groupId);
     }
 
-    // Scan all tiles, flood-fill regions
+    // Scan all tiles, flood-fill groups
     for (var i = 0; i < this.width * this.height; i++) {
       if (!assigned[i]) {
-        floodRegion(i);
+        floodGroup(i);
       }
     }
+
+    this.levels.push(level1Ids); // levels[1]
   },
 
-  // Build adjacency graph between regions
-  buildAdjacency: function() {
-    var self = this;
-    var edgeSet = new Set(); // "a,b" strings to avoid duplicates
+  // --- Build adjacency for level-1 groups (from tile adjacency) ---
+
+  buildLevel1Adjacency: function() {
+    var edgeSet = new Set();
 
     for (var y = 0; y < this.height; y++) {
       for (var x = 0; x < this.width; x++) {
         var idx = y * this.width + x;
-        var rId = this.regionOfTile[idx];
-        if (rId < 0) continue;
+        var gId = this.groupOfTile[idx];
+        if (gId < 0) continue;
 
-        // Check right and down neighbors
         var dirs = [[1, 0], [0, 1]];
         for (var d = 0; d < dirs.length; d++) {
           var nx = x + dirs[d][0], ny = y + dirs[d][1];
           if (nx >= this.width || ny >= this.height) continue;
           var ni = ny * this.width + nx;
-          var nrId = this.regionOfTile[ni];
-          if (nrId >= 0 && nrId !== rId) {
-            var lo = Math.min(rId, nrId), hi = Math.max(rId, nrId);
+          var ngId = this.groupOfTile[ni];
+          if (ngId >= 0 && ngId !== gId) {
+            var lo = Math.min(gId, ngId), hi = Math.max(gId, ngId);
             var key = lo + ',' + hi;
             if (!edgeSet.has(key)) {
               edgeSet.add(key);
-              var rA = this.regions.get(lo);
-              var rB = this.regions.get(hi);
-              if (rA && rB) {
-                if (rA.neighbors.indexOf(hi) < 0) rA.neighbors.push(hi);
-                if (rB.neighbors.indexOf(lo) < 0) rB.neighbors.push(lo);
+              var gA = this.groups.get(lo);
+              var gB = this.groups.get(hi);
+              if (gA && gB) {
+                if (gA.neighbors.indexOf(hi) < 0) gA.neighbors.push(hi);
+                if (gB.neighbors.indexOf(lo) < 0) gB.neighbors.push(lo);
               }
             }
           }
@@ -346,33 +445,159 @@ var World = {
     }
   },
 
-  // --- Populate: spawn initial groups into walkable regions ---
+  // --- Higher levels: recursively group adjacent same-level groups ---
 
-  populate: function() {
-    var walkableRegions = [];
+  generateHigherLevels: function() {
+    var level = 1;
+    while (this.levels[level].length > CONFIG.HIERARCHY_BRANCH_MAX) {
+      level++;
+      this.generateLevel(level);
+    }
+    this.maxLevel = level;
+  },
+
+  generateLevel: function(level) {
     var self = this;
-    this.regions.forEach(function(region) {
-      if (region.type !== 'water' && region.type !== 'rock') {
-        walkableRegions.push(region.id);
-      }
-    });
+    var prevIds = this.levels[level - 1];
+    var assigned = {};
+    var newIds = [];
 
-    if (walkableRegions.length === 0) return;
-
-    // Plants: one grass group per walkable region, bush in ~half, tree in ~quarter
-    for (var i = 0; i < walkableRegions.length; i++) {
-      var rId = walkableRegions[i];
-      this.spawnGroup('grass', rId);
-      if (Math.random() < 0.5) this.spawnGroup('bush', rId);
-      if (Math.random() < 0.25) this.spawnGroup('tree', rId);
+    // Shuffle for variety
+    var shuffled = prevIds.slice();
+    for (var i = shuffled.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
     }
 
-    // Animals: spread across random walkable regions
+    for (var si = 0; si < shuffled.length; si++) {
+      var startId = shuffled[si];
+      if (assigned[startId]) continue;
+
+      // Flood-fill adjacent groups at prev level
+      var cluster = [startId];
+      assigned[startId] = true;
+      var queue = [startId];
+
+      while (queue.length > 0 && cluster.length < CONFIG.HIERARCHY_BRANCH_MAX) {
+        var current = queue.shift();
+        var currentGroup = self.groups.get(current);
+        if (!currentGroup) continue;
+
+        var neighbors = currentGroup.neighbors;
+        for (var ni = 0; ni < neighbors.length; ni++) {
+          var nid = neighbors[ni];
+          if (assigned[nid] || cluster.length >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
+          // Only group things at the same level
+          var ng = self.groups.get(nid);
+          if (!ng || ng.level !== level - 1) continue;
+          cluster.push(nid);
+          assigned[nid] = true;
+          queue.push(nid);
+        }
+      }
+
+      // Create parent group
+      var parentNode = createNode('tilegroup');
+      parentNode.level = level;
+      parentNode.children = cluster;
+      parentNode.parentGroup = null;
+      parentNode.neighbors = [];
+
+      // Aggregate properties from children
+      var allTiles = [];
+      var cx = 0, cy = 0, totalFertility = 0;
+      var typeCounts = {};
+
+      for (var ci = 0; ci < cluster.length; ci++) {
+        var child = self.groups.get(cluster[ci]);
+        child.parentGroup = parentNode.id;
+
+        for (var ti = 0; ti < child.tiles.length; ti++) {
+          allTiles.push(child.tiles[ti]);
+        }
+        cx += child.center.x * child.tileCount;
+        cy += child.center.y * child.tileCount;
+        totalFertility += child.fertility * child.tileCount;
+        typeCounts[child.type] = (typeCounts[child.type] || 0) + child.tileCount;
+      }
+
+      parentNode.tiles = allTiles;
+      parentNode.tileCount = allTiles.length;
+      parentNode.count = allTiles.length;
+      parentNode.center.x = Math.round(cx / allTiles.length);
+      parentNode.center.y = Math.round(cy / allTiles.length);
+      parentNode.fertility = totalFertility / allTiles.length;
+      computeSpread(parentNode);
+
+      // Dominant type
+      var bestType = 'mixed', bestCount = 0;
+      var typeKeys = Object.keys(typeCounts);
+      for (var tk = 0; tk < typeKeys.length; tk++) {
+        if (typeCounts[typeKeys[tk]] > bestCount) {
+          bestCount = typeCounts[typeKeys[tk]];
+          bestType = typeKeys[tk];
+        }
+      }
+      parentNode.type = bestType;
+
+      self.groups.set(parentNode.id, parentNode);
+      self.nodes.set(parentNode.id, parentNode);
+      self.byGroup.set(parentNode.id, new Set());
+      newIds.push(parentNode.id);
+    }
+
+    // Build adjacency for this level from children's adjacency
+    for (var i = 0; i < newIds.length; i++) {
+      var gA = self.groups.get(newIds[i]);
+      var neighborSet = {};
+      for (var ci = 0; ci < gA.children.length; ci++) {
+        var child = self.groups.get(gA.children[ci]);
+        if (!child) continue;
+        for (var ni = 0; ni < child.neighbors.length; ni++) {
+          var neighborChild = self.groups.get(child.neighbors[ni]);
+          if (neighborChild && neighborChild.parentGroup !== gA.id && neighborChild.parentGroup !== null) {
+            neighborSet[neighborChild.parentGroup] = true;
+          }
+        }
+      }
+      gA.neighbors = [];
+      var nkeys = Object.keys(neighborSet);
+      for (var nk = 0; nk < nkeys.length; nk++) {
+        gA.neighbors.push(parseInt(nkeys[nk]));
+      }
+    }
+
+    this.levels.push(newIds);
+  },
+
+  // --- Populate: spawn initial groups into walkable level-1 groups ---
+
+  populate: function() {
+    var walkableGroups = [];
+    var self = this;
+    var level1Ids = this.levels[1];
+    for (var i = 0; i < level1Ids.length; i++) {
+      var group = this.groups.get(level1Ids[i]);
+      if (group && group.type !== 'water' && group.type !== 'rock') {
+        walkableGroups.push(group.id);
+      }
+    }
+
+    if (walkableGroups.length === 0) return;
+
+    // Plants: one grass group per walkable group, bush in ~half, tree in ~quarter
+    for (var i = 0; i < walkableGroups.length; i++) {
+      var gId = walkableGroups[i];
+      this.spawnGroup('grass', gId);
+      if (Math.random() < 0.5) this.spawnGroup('bush', gId);
+      if (Math.random() < 0.25) this.spawnGroup('tree', gId);
+    }
+
+    // Animals: spread across random walkable groups
     function spawnGroups(templateId, count) {
       for (var j = 0; j < count; j++) {
-        var rId = walkableRegions[Math.floor(Math.random() * walkableRegions.length)];
-        var node = self.spawnGroup(templateId, rId);
-        // Randomize starting state
+        var gId = walkableGroups[Math.floor(Math.random() * walkableGroups.length)];
+        var node = self.spawnGroup(templateId, gId);
         if (node.traits.vitals) {
           node.traits.vitals.hunger = 10 + Math.random() * 25;
           node.traits.vitals.energy = 60 + Math.random() * 30;
@@ -380,9 +605,7 @@ var World = {
       }
     }
 
-    // Stones: spread across random walkable regions
     spawnGroups('stone', CONFIG.INITIAL_STONE);
-
     spawnGroups('rabbit', CONFIG.INITIAL_RABBIT);
     spawnGroups('deer', CONFIG.INITIAL_DEER);
     spawnGroups('pig', CONFIG.INITIAL_PIG);

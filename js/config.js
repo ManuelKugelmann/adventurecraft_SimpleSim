@@ -7,13 +7,17 @@ var CONFIG = {
   TICK_MS: 200,
   SPEED_OPTIONS: [200, 100, 40, 0],
 
-  // Region generation
+  // Terrain generation
   WATER_BLOBS: 5,
   WATER_BLOB_SIZE: 30,
   ROCK_CLUSTERS: 4,
   ROCK_CLUSTER_SIZE: 15,
-  REGION_MIN_SIZE: 12,
-  REGION_MAX_SIZE: 120,
+
+  // Hierarchy generation (recursive tile grouping)
+  HIERARCHY_L1_MIN: 16,         // min tiles per level-1 group
+  HIERARCHY_L1_MAX: 25,         // max tiles per level-1 group
+  HIERARCHY_BRANCH_MIN: 3,      // min children per higher-level group
+  HIERARCHY_BRANCH_MAX: 5,      // max children per higher-level group
 
   // Initial group spawns (number of groups, not individuals)
   INITIAL_GRASS: 0,    // auto: one per walkable region
@@ -75,8 +79,9 @@ var TEMPLATES = {
   tile_water: { category: 'terrain', symbol: '~', color: '#3a6ea5', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   tile_dirt:  { category: 'terrain', symbol: ',', color: '#8b7355', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
-  // --- Region (structural container for grouping hierarchy) ---
+  // --- Structural containers (grouping hierarchy) ---
   region: { category: 'region', symbol: 'R', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
+  tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
   grass: {
     category: 'plant',
