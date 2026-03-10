@@ -1,108 +1,135 @@
-// rules.js — Scale-agnostic biology rules
-// Same rules apply to count=1 or count=50. Count scales interaction magnitudes.
-// Items (grains, seeds, stones) have no vitals — they just exist as bulk nodes.
+// rules.js — Biology rules: declarative data + engine
+// Rule definitions are pure data (future target for .acf format parsing).
+// Rule engine interprets the data tables against vitals and sense model.
+
+// === BIOLOGY RULE DEFINITIONS (DATA) ===
+// Each rule: { name, target/effect, op, amount, when, requires }
+// Conditions: [field, op, value] — evaluated by evalRuleConditions()
+// This data block maps directly to a future .acf rule format:
+//   RULE hungerDrain   APPLY hunger += 0.4
+//   RULE autoDrink     REQUIRES thirst  WHEN thirst > 40 AND sense.water.adjacent == true  APPLY thirst -= 15 MIN 0
+
+var BIO_RULE_DEFS = [
+  // --- Vital drains (per-tick, unconditional for animals) ---
+  { name: 'hungerDrain',   target: 'hunger', op: 'add', amount: CONFIG.HUNGER_RATE },
+  { name: 'thirstDrain',   target: 'thirst', op: 'add', amount: CONFIG.THIRST_RATE,
+    requires: 'thirst' },
+  { name: 'energyDrain',   target: 'energy', op: 'sub', amount: CONFIG.ENERGY_DRAIN },
+
+  // --- Conditional regen ---
+  { name: 'energyRegen',   target: 'energy', op: 'add', amount: 0.1, cap: 100,
+    when: [['hunger', '<', 70], ['energy', '<', 100]] },
+
+  // --- Water / thirst ---
+  { name: 'autoDrink',     target: 'thirst', op: 'sub', amount: 15, floor: 0,
+    requires: 'thirst',
+    when: [['thirst', '>', 40], ['sense.water.adjacent', '==', true]] },
+  { name: 'dehydration',   target: 'health', op: 'sub', amount: 2,
+    requires: 'health',
+    when: [['thirst', '>=', 80]] },
+
+  // --- Health ---
+  { name: 'healthRegen',   target: 'health', op: 'add', amount: CONFIG.HEAL_RATE, cap: 100,
+    requires: 'health',
+    when: [['hunger', '<', 50], ['thirst', '<', 50]] },
+  { name: 'healthCollapse', effect: 'kill', rate: 0.1, min: 1,
+    requires: 'health',
+    set: { health: 20 },
+    when: [['health', '<=', 0]] },
+
+  // --- Starvation / exhaustion ---
+  { name: 'starvation',    effect: 'kill', rate: CONFIG.STARVE_RATE, min: 1,
+    when: [['hunger', '>=', 90]] },
+  { name: 'exhaustion',    effect: 'kill', count: 1,
+    set: { energy: 0 },
+    when: [['energy', '<=', 0]] },
+
+  // --- Reproduction ---
+  { name: 'reproduce',     effect: 'birth', rate: CONFIG.BIRTH_RATE, min: 1,
+    cost: { hunger: 12, energy: -5 },
+    when: [['hunger', '<', 40], ['energy', '>', 30],
+           ['health', '>', 50], ['thirst', '<', 50], ['count', '>=', 2]] },
+];
+
+// === BIOLOGY RULE ENGINE (CODE) ===
 
 var Rules = {
   biology: function(node) {
     var tmpl = TEMPLATES[node.templateId];
-
-    // Items: no biology, just passive existence
     if (tmpl.category === 'seed' || tmpl.category === 'item') return;
 
     var v = node.traits.vitals;
     if (!v) return;
 
+    // Plants: separate growth logic (not data-driven yet)
     if (tmpl.category === 'plant') {
-      // Plant growth: count increases based on container fertility
-      var group = World.groups.get(node.container);
-      if (group) {
-        var maxCount = CONFIG.PLANT_MAX_DENSITY * group.tileCount;
-        if (node.count < maxCount) {
-          node.count += CONFIG.PLANT_GROW_RATE * group.fertility;
-          node.count = Math.min(node.count, maxCount);
-        }
-      }
-
-      // Seed/grain drop: mature plants occasionally produce items
-      if (node.count > 10 && Math.random() < CONFIG.SEED_DROP_RATE) {
-        var itemType = node.templateId === 'grass' ? 'grains' : 'seeds';
-        var dropCount = Math.max(1, Math.floor(node.count * 0.05));
-        spawnItem(itemType, dropCount, node.container, node.center);
-      }
-
-      computeSpread(node);
+      this._plantGrowth(node, v);
       return;
     }
 
-    // Animals: hunger/energy/thirst drain (scale-agnostic)
-    v.hunger += CONFIG.HUNGER_RATE;
-    v.energy -= CONFIG.ENERGY_DRAIN;
-    if (v.thirst !== undefined) v.thirst += CONFIG.THIRST_RATE;
+    // Animals: scan sense model, run rule table
+    var sense = Sense.scan(node);
+    for (var i = 0; i < BIO_RULE_DEFS.length; i++) {
+      var rule = BIO_RULE_DEFS[i];
+      if (rule.requires && v[rule.requires] === undefined) continue;
+      if (rule.when && !evalRuleConditions(rule.when, v, sense, node.count)) continue;
 
-    if (v.hunger < 70 && v.energy < 100) {
-      v.energy += 0.1;
-    }
-
-    // Thirst: drink from water neighbors, dehydration damage
-    if (v.thirst !== undefined) {
-      var group = World.groups.get(node.container);
-      if (group && v.thirst > 40) {
-        // Auto-drink if adjacent to water
-        var neighbors = group.neighbors;
-        for (var ni = 0; ni < neighbors.length; ni++) {
-          var ng = World.groups.get(neighbors[ni]);
-          if (ng && ng.type === 'water') {
-            v.thirst = Math.max(0, v.thirst - 15);
-            break;
-          }
-        }
-      }
-      // Dehydration: health damage
-      if (v.thirst >= 80 && v.health !== undefined) {
-        v.health -= 2;
+      if (rule.effect) {
+        this._applyEffect(node, v, rule);
+      } else {
+        this._applyVitalChange(v, rule);
       }
     }
 
-    // Health: regen when well-fed and hydrated, die at 0
-    if (v.health !== undefined) {
-      if (v.hunger < 50 && (v.thirst === undefined || v.thirst < 50)) {
-        v.health = Math.min(100, v.health + CONFIG.HEAL_RATE);
-      }
-      if (v.health <= 0) {
-        var healthDeaths = Math.max(1, Math.ceil(node.count * 0.1));
-        node.count -= healthDeaths;
-        v.health = 20; // survivors recover slightly
-      }
-    }
-
-    // Starvation: compound statistic
-    if (v.hunger >= 90) {
-      var deaths = Math.max(1, Math.ceil(node.count * CONFIG.STARVE_RATE));
-      node.count -= deaths;
-    }
-
-    // Exhaustion
-    if (v.energy <= 0) {
-      v.energy = 0;
-      node.count -= 1;
-    }
-
-    // Reproduction: compound statistic (requires good health)
-    var healthOk = v.health === undefined || v.health > 50;
-    var thirstOk = v.thirst === undefined || v.thirst < 50;
-    if (v.hunger < 40 && v.energy > 30 && healthOk && thirstOk && node.count >= 2) {
-      var births = Math.max(1, Math.floor(node.count * CONFIG.BIRTH_RATE));
-      node.count += births;
-      v.hunger += 12;
-      v.energy -= 5;
-    }
-
-    // Death: drop contained items before dying
+    // Death: drop contained items
     if (node.count <= 0) {
       dropContained(node);
       node.alive = false;
     }
+    computeSpread(node);
+  },
 
+  _applyVitalChange: function(v, rule) {
+    if (rule.op === 'add') v[rule.target] += rule.amount;
+    else if (rule.op === 'sub') v[rule.target] -= rule.amount;
+    if (rule.cap !== undefined && v[rule.target] > rule.cap) v[rule.target] = rule.cap;
+    if (rule.floor !== undefined && v[rule.target] < rule.floor) v[rule.target] = rule.floor;
+  },
+
+  _applyEffect: function(node, v, rule) {
+    if (rule.effect === 'kill') {
+      var deaths = rule.count !== undefined
+        ? rule.count
+        : Math.max(rule.min || 1, Math.ceil(node.count * rule.rate));
+      node.count -= deaths;
+      if (rule.set) {
+        var keys = Object.keys(rule.set);
+        for (var i = 0; i < keys.length; i++) v[keys[i]] = rule.set[keys[i]];
+      }
+    } else if (rule.effect === 'birth') {
+      var births = Math.max(rule.min || 1, Math.floor(node.count * rule.rate));
+      node.count += births;
+      if (rule.cost) {
+        var keys = Object.keys(rule.cost);
+        for (var i = 0; i < keys.length; i++) v[keys[i]] += rule.cost[keys[i]];
+      }
+    }
+  },
+
+  _plantGrowth: function(node, v) {
+    var group = World.groups.get(node.container);
+    if (group) {
+      var maxCount = CONFIG.PLANT_MAX_DENSITY * group.tileCount;
+      if (node.count < maxCount) {
+        node.count += CONFIG.PLANT_GROW_RATE * group.fertility;
+        node.count = Math.min(node.count, maxCount);
+      }
+    }
+    if (node.count > 10 && Math.random() < CONFIG.SEED_DROP_RATE) {
+      var itemType = node.templateId === 'grass' ? 'grains' : 'seeds';
+      var dropCount = Math.max(1, Math.floor(node.count * 0.05));
+      spawnItem(itemType, dropCount, node.container, node.center);
+    }
     computeSpread(node);
   },
 };

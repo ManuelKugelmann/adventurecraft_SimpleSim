@@ -1,63 +1,225 @@
-// roles.js — Per-entity roles, compound execution for groups
-// Roles are defined per entity. Groups execute them statistically:
-//   Large groups  → compound: primary action for whole group, record spread
-//   Small groups  → placeholder sim: jittered individuals evaluated independently
+// roles.js — Role definitions (data) + action implementations (code) + role engine
+// Role definitions are pure data (future target for .acf format parsing).
+// Actions are named implementations referenced by role rules.
+// Role engine matches conditions via sense model and dispatches to actions/plans.
+
+// === ROLE DEFINITIONS (DATA) ===
+// Each entry: { name, urgent?, when (conditions), action/plan }
+// Conditions: [field, op, value] — evaluated by evalRuleConditions()
+// Priority: first match wins. Urgent: whole group acts in unison.
+// This data block maps directly to a future .acf role format:
+//   ROLE grazer
+//     RULE flee      URGENT  WHEN sense.threats.count > 0         PLAN flee
+//     RULE graze             WHEN hunger > 35 AND sense.food.here != null  ACTION graze
+
+var ROLE_DEFS = {
+  grazer: [
+    { name: 'flee',      urgent: true,
+      when: [['sense.threats.count', '>', 0]],                          plan: 'flee' },
+    { name: 'seekWater',
+      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
+    { name: 'graze',
+      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
+    { name: 'seekFood',
+      when: [['hunger', '>', 55]],                                     plan: 'findFood' },
+    { name: 'rest',
+      when: [['energy', '<', 20]],                                     action: 'rest' },
+    { name: 'wander',                                                  action: 'wander' },
+  ],
+  hunter: [
+    { name: 'flee',      urgent: true,
+      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
+    { name: 'seekWater',
+      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
+    { name: 'hunt',
+      when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],    action: 'hunt' },
+    { name: 'seekPrey',
+      when: [['hunger', '>', 45]],                                     plan: 'huntPrey' },
+    { name: 'rest',
+      when: [['energy', '<', 20]],                                     action: 'rest' },
+    { name: 'wander',                                                  action: 'wander' },
+  ],
+  forager: [
+    { name: 'flee',      urgent: true,
+      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
+    { name: 'seekWater',
+      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
+    { name: 'hunt',
+      when: [['hunger', '>', 50], ['sense.prey.here', '!=', null]],    action: 'hunt' },
+    { name: 'graze',
+      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
+    { name: 'seekFood',
+      when: [['hunger', '>', 50]],                                     plan: 'findFood' },
+    { name: 'rest',
+      when: [['energy', '<', 20]],                                     action: 'rest' },
+    { name: 'wander',                                                  action: 'wander' },
+  ],
+};
+
+// === ACTION IMPLEMENTATIONS (CODE) ===
+// Named actions referenced by role rules. These are the code bridge
+// between declarative rules and world mutation.
+
+var ACTIONS = {
+  graze: function(node, sense) {
+    var food = sense.food.here;
+    if (!food) return;
+
+    var eaten = Math.min(food.count, node.count * CONFIG.FEED_RATE);
+    eaten = Math.max(1, Math.round(eaten));
+    food.count -= eaten;
+    if (food.count <= 0) food.alive = false;
+
+    node.traits.vitals.hunger -= eaten * CONFIG.FOOD_PER_PLANT / Math.max(1, node.count);
+    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+    node.traits.vitals.energy -= 0.5;
+    node.traits.agency.lastAction = 'graze';
+  },
+
+  hunt: function(node, sense) {
+    var prey = sense.prey.here;
+    if (!prey || prey.count <= 0) return;
+
+    var myStrength = node.count * TEMPLATES[node.templateId].strength;
+    var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
+    var ratio = myStrength / Math.max(preyStrength, 1);
+
+    var expectedKills = node.count * CONFIG.KILL_RATE * ratio;
+    var variance = expectedKills * 0.2;
+    var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
+    killed = Math.max(0, Math.min(killed, prey.count));
+
+    prey.count -= killed;
+    if (prey.count <= 0) prey.alive = false;
+
+    node.traits.vitals.hunger -= killed * CONFIG.FOOD_PER_PREY / Math.max(1, node.count);
+    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+
+    var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
+    node.count -= Math.min(predatorLosses, node.count - 1);
+
+    // Combat damage to health
+    if (node.traits.vitals.health !== undefined) {
+      node.traits.vitals.health -= Math.max(1, Math.round(5 / Math.max(ratio, 0.1)));
+      node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
+    }
+
+    node.traits.vitals.energy -= 3;
+    node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
+  },
+
+  rest: function(node) {
+    node.traits.vitals.energy = Math.min(100, node.traits.vitals.energy + 5);
+    node.traits.agency.lastAction = 'rest';
+  },
+
+  wander: function(node, sense) {
+    if (sense.stones.blocked) {
+      node.traits.vitals.energy -= 0.5;
+      node.traits.agency.lastAction = 'blocked-stones';
+      return;
+    }
+    if (sense.stones.slowed) {
+      var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
+                       (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
+      if (Math.random() < slowChance) {
+        node.traits.vitals.energy -= 0.5;
+        node.traits.agency.lastAction = 'slowed-stones';
+        return;
+      }
+    }
+    var neighbors = sense.neighbors;
+    if (neighbors.length === 0) return;
+    // Anti-circle: avoid returning to previous container
+    var candidates = neighbors;
+    if (node._lastContainer && neighbors.length > 1) {
+      candidates = [];
+      for (var i = 0; i < neighbors.length; i++) {
+        if (neighbors[i] !== node._lastContainer) candidates.push(neighbors[i]);
+      }
+      if (candidates.length === 0) candidates = neighbors;
+    }
+    var target = candidates[Math.floor(Math.random() * candidates.length)];
+    node._lastContainer = node.container;
+    tryPickup(node);
+    World.startMove(node, target);
+    node.traits.vitals.energy -= 0.5;
+    node.traits.agency.lastAction = 'wander';
+  },
+};
+
+// === ROLE ENGINE (CODE) ===
 
 var Roles = {
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
 
-    // Continue active process
+    // Continue active plan
     if (agency.activePlan) {
       Planner.executeStep(node);
       return;
     }
 
+    // Scan world model once per evaluation
+    var sense = Sense.scan(node);
+
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
-      this.evaluatePlaceholders(node);
+      this.evaluatePlaceholders(node, sense);
     } else {
-      this.evaluateCompound(node);
+      this.evaluateCompound(node, sense);
+    }
+  },
+
+  // Match role rules against vitals and sense model
+  _matchRules: function(roleDef, vitals, sense, count) {
+    var matches = [];
+    for (var i = 0; i < roleDef.length; i++) {
+      var rule = roleDef[i];
+      if (!rule.when || evalRuleConditions(rule.when, vitals, sense, count)) {
+        matches.push(rule);
+      }
+    }
+    return matches;
+  },
+
+  // Execute a matched role rule
+  _execRule: function(rule, node, sense) {
+    if (rule.action) {
+      ACTIONS[rule.action](node, sense);
+    } else if (rule.plan) {
+      Planner.start(node, rule.plan);
     }
   },
 
   // --- Large groups: compound statistical execution ---
-  // One evaluation, primary action applied to whole group via compound math.
-  // Falls back to placeholder sim when situation is too complex for statistics.
-  evaluateCompound: function(node) {
+  evaluateCompound: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
     if (!roleDef) return;
 
-    // Collect all matching conditions
-    var matches = [];
-    for (var i = 0; i < roleDef.length; i++) {
-      if (roleDef[i].condition(node)) {
-        matches.push(roleDef[i]);
-      }
-    }
+    var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count);
     if (matches.length === 0) return;
 
-    // Complexity check: fall back to placeholder sim when too many
-    // competing actions make compound statistics unreliable
-    if (this.isComplex(node, matches)) {
-      this.evaluatePlaceholders(node);
+    // Complexity check: fall back to placeholder sim
+    if (this._isComplex(node, sense, matches)) {
+      this.evaluatePlaceholders(node, sense);
       return;
     }
 
     var primary = matches[0];
     var secondary = matches.length > 1 ? matches[1] : null;
 
-    // Urgent (flee): whole group acts together
+    // Urgent: whole group acts in unison
     if (primary.urgent) {
-      primary.action(node);
+      this._execRule(primary, node, sense);
       agency.actionSpread = {};
       agency.actionSpread[primary.name] = node.count;
       return;
     }
 
-    // Execute primary on whole group (compound math scales with count)
-    primary.action(node);
+    // Execute primary on whole group
+    this._execRule(primary, node, sense);
 
     // Record statistical spread estimate
     agency.actionSpread = {};
@@ -70,12 +232,7 @@ var Roles = {
     }
   },
 
-  // Detect when compound statistics would be unreliable:
-  // - 3+ competing actions (spread too thin for one aggregate)
-  // - Mixed threat + opportunity (flee some, hunt others)
-  // - Multiple distinct prey/food targets in region
-  isComplex: function(node, matches) {
-    // 3+ distinct actions matched → too many competing priorities
+  _isComplex: function(node, sense, matches) {
     if (matches.length >= 3) {
       var hasUrgent = false;
       var hasNonUrgent = 0;
@@ -83,66 +240,51 @@ var Roles = {
         if (matches[i].urgent) hasUrgent = true;
         else hasNonUrgent++;
       }
-      // Urgent + 2 non-urgent alternatives = complex decision
       if (hasUrgent && hasNonUrgent >= 2) return true;
     }
-
-    // Multiple distinct prey types in same container → compound combat formula unreliable
-    var diet = node.traits.diet;
-    if (diet) {
-      var groups = World.groupsInContainer(node.container);
-      var preyTypes = 0;
-      for (var i = 0; i < groups.length; i++) {
-        var other = groups[i];
-        if (other.id === node.id || !other.alive) continue;
-        var cat = TEMPLATES[other.templateId].category;
-        if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
-          preyTypes++;
+    // Multiple prey types → compound combat formula unreliable
+    if (sense.prey.count > 0) {
+      var diet = node.traits.diet;
+      if (diet) {
+        var entities = World.groupsInContainer(node.container);
+        var preyTypes = 0;
+        for (var i = 0; i < entities.length; i++) {
+          var other = entities[i];
+          if (other.id === node.id || !other.alive) continue;
+          var cat = TEMPLATES[other.templateId].category;
+          if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
+            preyTypes++;
+          }
         }
+        if (preyTypes >= 2) return true;
       }
-      if (preyTypes >= 2) return true;
     }
-
     return false;
   },
 
   // --- Small groups: simulate placeholder individuals ---
-  // Each placeholder gets jittered vitals and evaluates roles independently.
-  // Majority action executes on the group. Distribution recorded.
-  evaluatePlaceholders: function(node) {
+  evaluatePlaceholders: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
     if (!roleDef) return;
 
     var v = node.traits.vitals;
-    var actionTally = {};  // name → count
+    var actionTally = {};
 
     for (var p = 0; p < node.count; p++) {
       // Virtual individual with jittered vitals
-      var jitteredVitals = {
+      var jv = {
         hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
         energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
       };
-      if (v.health !== undefined) jitteredVitals.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
-      if (v.thirst !== undefined) jitteredVitals.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
-      var virtual = {
-        id: node.id,
-        templateId: node.templateId,
-        count: 1,
-        container: node.container,
-        alive: true,
-        traits: {
-          vitals: jitteredVitals,
-          diet: node.traits.diet,
-          agency: agency,
-          spatial: node.traits.spatial,
-        }
-      };
+      if (v.health !== undefined) jv.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
+      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
 
       // Evaluate: first matching condition wins for this placeholder
       for (var i = 0; i < roleDef.length; i++) {
-        if (roleDef[i].condition(virtual)) {
-          actionTally[roleDef[i].name] = (actionTally[roleDef[i].name] || 0) + 1;
+        var rule = roleDef[i];
+        if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1)) {
+          actionTally[rule.name] = (actionTally[rule.name] || 0) + 1;
           break;
         }
       }
@@ -159,12 +301,12 @@ var Roles = {
       }
     }
 
-    // Single action or group of 1: execute on whole group, no split possible
+    // Single action or group of 1: execute on whole group
     if (keys.length <= 1 || node.count <= 1) {
       if (majorAction) {
         for (var i = 0; i < roleDef.length; i++) {
           if (roleDef[i].name === majorAction) {
-            roleDef[i].action(node);
+            this._execRule(roleDef[i], node, sense);
             break;
           }
         }
@@ -200,7 +342,7 @@ var Roles = {
       // Execute the minority action on the split group
       for (var j = 0; j < roleDef.length; j++) {
         if (roleDef[j].name === keys[k]) {
-          roleDef[j].action(newNode);
+          this._execRule(roleDef[j], newNode, sense);
           break;
         }
       }
@@ -212,251 +354,18 @@ var Roles = {
     if (majorAction) {
       for (var i = 0; i < roleDef.length; i++) {
         if (roleDef[i].name === majorAction) {
-          roleDef[i].action(node);
+          this._execRule(roleDef[i], node, sense);
           break;
         }
       }
     }
-
     agency.actionSpread = actionTally;
   },
 };
 
 function clamp(val, lo, hi) { return val < lo ? lo : val > hi ? hi : val; }
 
-// --- Role definitions (per entity) ---
-// Each entry: { name, condition(entity), action(entity), urgent? }
-// Priority: first match wins. Urgent = whole group acts in unison.
-
-var ROLE_DEFS = {
-  grazer: [
-    { name: 'flee', urgent: true,
-      condition: function(n) { return threatsInContainer(n).length > 0; },
-      action: function(n) { Planner.start(n, 'flee'); }
-    },
-    { name: 'seekWater',
-      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
-      action: function(n) { Planner.start(n, 'findWater'); }
-    },
-    { name: 'graze',
-      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInContainer(n); },
-      action: function(n) { graze(n); }
-    },
-    { name: 'seekFood',
-      condition: function(n) { return n.traits.vitals.hunger > 55; },
-      action: function(n) { Planner.start(n, 'findFood'); }
-    },
-    { name: 'rest',
-      condition: function(n) { return n.traits.vitals.energy < 20; },
-      action: function(n) { rest(n); }
-    },
-    { name: 'wander',
-      condition: function() { return true; },
-      action: function(n) { wander(n); }
-    },
-  ],
-
-  hunter: [
-    { name: 'flee', urgent: true,
-      condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
-      action: function(n) { Planner.start(n, 'flee'); }
-    },
-    { name: 'seekWater',
-      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
-      action: function(n) { Planner.start(n, 'findWater'); }
-    },
-    { name: 'hunt',
-      condition: function(n) { return n.traits.vitals.hunger > 30 && preyInContainer(n); },
-      action: function(n) { hunt(n); }
-    },
-    { name: 'seekPrey',
-      condition: function(n) { return n.traits.vitals.hunger > 45; },
-      action: function(n) { Planner.start(n, 'huntPrey'); }
-    },
-    { name: 'rest',
-      condition: function(n) { return n.traits.vitals.energy < 20; },
-      action: function(n) { rest(n); }
-    },
-    { name: 'wander',
-      condition: function() { return true; },
-      action: function(n) { wander(n); }
-    },
-  ],
-
-  forager: [
-    { name: 'flee', urgent: true,
-      condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
-      action: function(n) { Planner.start(n, 'flee'); }
-    },
-    { name: 'seekWater',
-      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
-      action: function(n) { Planner.start(n, 'findWater'); }
-    },
-    { name: 'hunt',
-      condition: function(n) { return n.traits.vitals.hunger > 50 && preyInContainer(n); },
-      action: function(n) { hunt(n); }
-    },
-    { name: 'graze',
-      condition: function(n) { return n.traits.vitals.hunger > 35 && foodInContainer(n); },
-      action: function(n) { graze(n); }
-    },
-    { name: 'seekFood',
-      condition: function(n) { return n.traits.vitals.hunger > 50; },
-      action: function(n) { Planner.start(n, 'findFood'); }
-    },
-    { name: 'rest',
-      condition: function(n) { return n.traits.vitals.energy < 20; },
-      action: function(n) { rest(n); }
-    },
-    { name: 'wander',
-      condition: function() { return true; },
-      action: function(n) { wander(n); }
-    },
-  ],
-};
-
-// --- Container-scale actions (compound math scales with count) ---
-
-function graze(node) {
-  var food = foodInContainer(node);
-  if (!food) return;
-
-  var eaten = Math.min(food.count, node.count * CONFIG.FEED_RATE);
-  eaten = Math.max(1, Math.round(eaten));
-  food.count -= eaten;
-  if (food.count <= 0) food.alive = false;
-
-  node.traits.vitals.hunger -= eaten * CONFIG.FOOD_PER_PLANT / Math.max(1, node.count);
-  node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
-  node.traits.vitals.energy -= 0.5;
-  node.traits.agency.lastAction = 'graze';
-}
-
-function hunt(node) {
-  var prey = preyInContainer(node);
-  if (!prey || prey.count <= 0) return;
-
-  var myStrength = node.count * TEMPLATES[node.templateId].strength;
-  var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
-  var ratio = myStrength / Math.max(preyStrength, 1);
-
-  var expectedKills = node.count * CONFIG.KILL_RATE * ratio;
-  var variance = expectedKills * 0.2;
-  var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
-  killed = Math.max(0, Math.min(killed, prey.count));
-
-  prey.count -= killed;
-  if (prey.count <= 0) prey.alive = false;
-
-  node.traits.vitals.hunger -= killed * CONFIG.FOOD_PER_PREY / Math.max(1, node.count);
-  node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
-
-  var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
-  node.count -= Math.min(predatorLosses, node.count - 1);
-
-  // Combat damage to health
-  if (node.traits.vitals.health !== undefined) {
-    node.traits.vitals.health -= Math.max(1, Math.round(5 / Math.max(ratio, 0.1)));
-    node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
-  }
-
-  node.traits.vitals.energy -= 3;
-  node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
-}
-
-function rest(node) {
-  node.traits.vitals.energy = Math.min(100, node.traits.vitals.energy + 5);
-  node.traits.agency.lastAction = 'rest';
-}
-
-function wander(node) {
-  if (stoneMoveBlocked(node)) return;
-  var neighbors = World.walkableNeighbors(node.container);
-  if (neighbors.length === 0) return;
-  // Avoid returning to previous container (anti-circle)
-  var candidates = neighbors;
-  if (node._lastContainer && neighbors.length > 1) {
-    candidates = [];
-    for (var i = 0; i < neighbors.length; i++) {
-      if (neighbors[i] !== node._lastContainer) candidates.push(neighbors[i]);
-    }
-    if (candidates.length === 0) candidates = neighbors;
-  }
-  var target = candidates[Math.floor(Math.random() * candidates.length)];
-  node._lastContainer = node.container;
-  tryPickup(node);
-  World.startMove(node, target);
-  node.traits.vitals.energy -= 0.5;
-  node.traits.agency.lastAction = 'wander';
-}
-
-// --- Container-scale perception ---
-
-function foodInContainer(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  var groups = World.groupsInContainer(node.container);
-  for (var i = 0; i < groups.length; i++) {
-    var other = groups[i];
-    if (other.id === node.id || !other.alive) continue;
-    var otherTmpl = TEMPLATES[other.templateId];
-    var cat = otherTmpl.category;
-    if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed') && other.count > 0) {
-      return other;
-    }
-  }
-  return null;
-}
-
-function preyInContainer(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  var groups = World.groupsInContainer(node.container);
-  for (var i = 0; i < groups.length; i++) {
-    var other = groups[i];
-    if (other.id === node.id || !other.alive) continue;
-    var otherTmpl = TEMPLATES[other.templateId];
-    var cat = otherTmpl.category;
-    if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item' && other.count > 0) {
-      return other;
-    }
-  }
-  return null;
-}
-
-function threatsInContainer(node) {
-  var diet = node.traits.diet;
-  if (!diet || !diet.eatenBy || diet.eatenBy.length === 0) return [];
-  var groups = World.groupsInContainer(node.container);
-  var threats = [];
-  for (var i = 0; i < groups.length; i++) {
-    var other = groups[i];
-    if (other.id === node.id || !other.traits.agency) continue;
-    if (diet.eatenBy.indexOf(TEMPLATES[other.templateId].category) >= 0) {
-      threats.push(other);
-    }
-  }
-  return threats;
-}
-
-function biggerThreatsInContainer(node) {
-  var myCategory = TEMPLATES[node.templateId].category;
-  var myStrength = TEMPLATES[node.templateId].strength;
-  var groups = World.groupsInContainer(node.container);
-  var threats = [];
-  for (var i = 0; i < groups.length; i++) {
-    var other = groups[i];
-    if (other.id === node.id || !other.traits.agency) continue;
-    var otherDiet = other.traits.diet;
-    if (otherDiet && otherDiet.eats.indexOf(myCategory) >= 0 &&
-        TEMPLATES[other.templateId].strength > myStrength) {
-      threats.push(other);
-    }
-  }
-  return threats;
-}
-
-// --- Transport: pickup / drop via contains/containedBy chain ---
+// === TRANSPORT HELPERS ===
 
 function tryPickup(node) {
   var groups = World.groupsInContainer(node.container);
@@ -470,10 +379,8 @@ function tryPickup(node) {
     if (chance > 0 && Math.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
       if (amount >= other.count) {
-        // Take the whole node
         containItem(node, other);
       } else {
-        // Split off a portion into a new node
         other.count -= amount;
         var carried = createNode(other.templateId);
         carried.count = amount;
@@ -489,10 +396,8 @@ function tryPickup(node) {
 }
 
 function containItem(carrier, item) {
-  // Remove item from its container
   var oldSet = World.byGroup.get(item.container);
   if (oldSet) oldSet.delete(item.id);
-  // Link into containment chain
   item.containedBy = carrier.id;
   carrier.contains.push(item.id);
 }
@@ -512,19 +417,7 @@ function dropContained(node) {
   node.contains = [];
 }
 
-// --- Stone density: slowdown / blocking ---
-
-function stonesInContainer(regionId) {
-  var groups = World.groupsInContainer(regionId);
-  var total = 0;
-  for (var i = 0; i < groups.length; i++) {
-    if (groups[i].alive && TEMPLATES[groups[i].templateId].category === 'item') {
-      total += groups[i].count;
-    }
-  }
-  return total;
-}
-
+// Stone movement check (used by planner steps that don't have a sense model)
 function stoneMoveBlocked(node) {
   var group = World.groups.get(node.container);
   if (!group) return false;
@@ -544,4 +437,15 @@ function stoneMoveBlocked(node) {
     }
   }
   return false;
+}
+
+function stonesInContainer(regionId) {
+  var groups = World.groupsInContainer(regionId);
+  var total = 0;
+  for (var i = 0; i < groups.length; i++) {
+    if (groups[i].alive && TEMPLATES[groups[i].templateId].category === 'item') {
+      total += groups[i].count;
+    }
+  }
+  return total;
 }

@@ -1,5 +1,7 @@
-// planner.js — Reusable processes (multi-step action sequences)
-// Multi-step action sequences, movement between container groups
+// planner.js — Multi-step processes (plans)
+// Processes use the sense model for perception — no omniscient search.
+// Each process init scans sense to find a 1-hop target, then generates steps.
+// Plans abort ('fail') if movement fails or preconditions are invalidated.
 
 var Planner = {
   // Start a process for a node
@@ -55,15 +57,18 @@ var Planner = {
   },
 };
 
-// --- Reusable process definitions ---
+// === PROCESS DEFINITIONS ===
+// Each process: init(node) → { steps: [{ exec, valid? }] }
+// Steps use sense model for perception. Targets are 1-hop neighbors
+// from the sense model at init time.
 
 var PROCESSES = {
   flee: {
     init: function(node) {
       return {
         steps: [
-          { exec: function(n) { return fleeContainer(n); } },
-          { exec: function(n) { return fleeContainer(n); } },
+          { exec: function(n) { return fleeStep(n); } },
+          { exec: function(n) { return fleeStep(n); } },
         ]
       };
     },
@@ -71,10 +76,10 @@ var PROCESSES = {
 
   findFood: {
     init: function(node) {
-      // Scan neighbor groups for plant food
-      var target = findFoodNearby(node);
+      var sense = Sense.scan(node);
+      var target = sense.foodNearby;
       if (!target) {
-        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
+        return { steps: [{ exec: function(n) { ACTIONS.wander(n, Sense.scan(n)); return 'done'; } }] };
       }
       return {
         steps: [
@@ -91,8 +96,11 @@ var PROCESSES = {
             if (World.isMoving(n)) return 'continue';
             return 'done';
           }},
-          { valid: function(n) { return foodInContainer(n) !== null; },
-            exec: function(n) { graze(n); return 'done'; }
+          { valid: function(n) {
+            var s = Sense.scan(n);
+            return s.food.here !== null;
+          },
+            exec: function(n) { ACTIONS.graze(n, Sense.scan(n)); return 'done'; }
           },
         ]
       };
@@ -101,18 +109,10 @@ var PROCESSES = {
 
   findWater: {
     init: function(node) {
-      // BFS for a group adjacent to water
-      var target = bfsFind(node.container, 4, function(groupId) {
-        var g = World.groups.get(groupId);
-        if (!g) return false;
-        for (var i = 0; i < g.neighbors.length; i++) {
-          var ng = World.groups.get(g.neighbors[i]);
-          if (ng && ng.type === 'water') return true;
-        }
-        return false;
-      });
+      var sense = Sense.scan(node);
+      var target = sense.waterNearby;
       if (!target) {
-        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
+        return { steps: [{ exec: function(n) { ACTIONS.wander(n, Sense.scan(n)); return 'done'; } }] };
       }
       return {
         steps: [
@@ -127,7 +127,7 @@ var PROCESSES = {
           }},
           { exec: function(n) {
             if (World.isMoving(n)) return 'continue';
-            // Arrived near water — thirst handled by biology auto-drink
+            // Arrived near water — thirst handled by biology auto-drink rule
             return 'done';
           }},
         ]
@@ -137,10 +137,10 @@ var PROCESSES = {
 
   huntPrey: {
     init: function(node) {
-      // Scan neighbor groups for prey
-      var target = findPreyNearby(node);
+      var sense = Sense.scan(node);
+      var target = sense.preyNearby;
       if (!target) {
-        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
+        return { steps: [{ exec: function(n) { ACTIONS.wander(n, Sense.scan(n)); return 'done'; } }] };
       }
       return {
         steps: [
@@ -157,8 +157,11 @@ var PROCESSES = {
             if (World.isMoving(n)) return 'continue';
             return 'done';
           }},
-          { valid: function(n) { return preyInContainer(n) !== null; },
-            exec: function(n) { hunt(n); return 'done'; }
+          { valid: function(n) {
+            var s = Sense.scan(n);
+            return s.prey.here !== null;
+          },
+            exec: function(n) { ACTIONS.hunt(n, Sense.scan(n)); return 'done'; }
           },
         ]
       };
@@ -168,17 +171,17 @@ var PROCESSES = {
 
 // --- Process helpers ---
 
-function fleeContainer(node) {
+function fleeStep(node) {
   if (World.isMoving(node)) return 'continue';
-  var threats = threatsInContainer(node);
-  if (threats.length === 0) threats = biggerThreatsInContainer(node);
+  var sense = Sense.scan(node);
+  var threats = sense.threats.here;
+  if (threats.length === 0) threats = sense.biggerThreats.here;
   if (threats.length === 0) return 'done';
 
-  // Pick a walkable neighbor away from threats
-  var neighbors = World.walkableNeighbors(node.container);
+  var neighbors = sense.neighbors;
   if (neighbors.length === 0) return 'fail';
 
-  // Score each neighbor: prefer groups farther from threats
+  // Pick a walkable neighbor away from threats
   var threatGroup = threats[0].container;
   var best = null;
   var bestScore = -Infinity;
@@ -187,7 +190,6 @@ function fleeContainer(node) {
     if (!nGroup) continue;
     var tGroup = World.groups.get(threatGroup);
     if (!tGroup) { best = neighbors[i]; break; }
-    // Distance from threat (Manhattan between group centers)
     var dist = Math.abs(nGroup.center.x - tGroup.center.x) +
                Math.abs(nGroup.center.y - tGroup.center.y);
     if (dist > bestScore) {
@@ -202,72 +204,7 @@ function fleeContainer(node) {
     if (!World.startMove(node, best)) return 'fail';
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
-    return 'continue'; // wait for movement to complete
+    return 'continue';
   }
   return 'done';
-}
-
-// BFS on link graph: find first group within maxHops matching a predicate.
-// Returns the first-hop neighbor ID on the path (what to pass to startMove),
-// or null if nothing found. predicate(groupId) returns true if target found there.
-function bfsFind(startContainer, maxHops, predicate) {
-  var visited = {};
-  visited[startContainer] = true;
-  // queue entries: { groupId, firstHop } — firstHop is the immediate neighbor on the path
-  var queue = [];
-  var neighbors = World.walkableNeighbors(startContainer);
-  for (var i = 0; i < neighbors.length; i++) {
-    visited[neighbors[i]] = true;
-    queue.push({ groupId: neighbors[i], firstHop: neighbors[i], depth: 1 });
-  }
-  var qi = 0;
-  while (qi < queue.length) {
-    var cur = queue[qi++];
-    if (predicate(cur.groupId)) return cur.firstHop;
-    if (cur.depth >= maxHops) continue;
-    var next = World.walkableNeighbors(cur.groupId);
-    for (var j = 0; j < next.length; j++) {
-      if (!visited[next[j]]) {
-        visited[next[j]] = true;
-        queue.push({ groupId: next[j], firstHop: cur.firstHop, depth: cur.depth + 1 });
-      }
-    }
-  }
-  return null;
-}
-
-// Find a nearby group containing plant food (up to 3 hops via BFS)
-function findFoodNearby(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  return bfsFind(node.container, 3, function(groupId) {
-    var groups = World.groupsInContainer(groupId);
-    for (var j = 0; j < groups.length; j++) {
-      var other = groups[j];
-      if (!other.alive || other.count <= 0) continue;
-      var cat = TEMPLATES[other.templateId].category;
-      if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
-        return true;
-      }
-    }
-    return false;
-  });
-}
-
-// Find a nearby group containing prey (up to 3 hops via BFS)
-function findPreyNearby(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  return bfsFind(node.container, 3, function(groupId) {
-    var groups = World.groupsInContainer(groupId);
-    for (var j = 0; j < groups.length; j++) {
-      var other = groups[j];
-      if (!other.alive || other.count <= 0) continue;
-      var cat = TEMPLATES[other.templateId].category;
-      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
-        return true;
-      }
-    }
-    return false;
-  });
 }

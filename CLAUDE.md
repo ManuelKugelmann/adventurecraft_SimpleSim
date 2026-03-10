@@ -56,12 +56,46 @@ index.html          Entry point, grid container, controls
 js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES (all entity definitions)
 js/node.js          createNode(), computeSpread() — node factory
 js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
-js/rules.js         Rules.biology() — hunger, growth, reproduction, starvation, seed drop
-js/roles.js         Roles.evaluate() — role definitions, compound/placeholder execution
-js/planner.js       Planner — multi-step processes (flee, findFood, huntPrey)
+js/sense.js         Sense.scan() — range-limited world model per entity; evalRuleConditions()
+js/rules.js         BIO_RULE_DEFS (data) + Rules engine (code) — biology as declarative rule table
+js/roles.js         ROLE_DEFS (data) + ACTIONS (code) + Roles engine — behavior as declarative rules
+js/planner.js       Planner + PROCESSES — multi-step plans using sense model (no omniscient search)
 js/groups.js        Groups — merge/split passes for nodes with group trait
 js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarchy borders, inspector
 js/simulation.js    Simulation — tick loop, layer execution order
+```
+
+### Data / Code Separation
+
+All behavior is defined as **declarative data tables** (future .acf parsing targets)
+evaluated by **engine code**:
+
+| Data | Code | Location |
+|---|---|---|
+| `BIO_RULE_DEFS` — biology rules: drains, regen, death, reproduction | `Rules._applyVitalChange/Effect()` | rules.js |
+| `ROLE_DEFS` — role condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
+| `ACTIONS` — named action implementations (graze, hunt, rest, wander) | (direct functions) | roles.js |
+| `PROCESSES` — multi-step plan templates (flee, findFood, findWater, huntPrey) | `Planner.start/executeStep()` | planner.js |
+
+Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
+Fields reference vitals (`hunger`, `thirst`) or sense model paths (`sense.threats.count`).
+
+### Sense Model (Perception)
+
+`Sense.scan(node)` builds a range-limited world model (1-hop perception):
+```
+{
+  food:          { here, count }        // edible plants/seeds in my container
+  prey:          { here, count }        // huntable animals in my container
+  threats:       { here[], count }      // things that eat me
+  biggerThreats: { here[], count }      // stronger predators
+  water:         { adjacent }           // water tile neighbor
+  neighbors:     [walkable group ids]   // walkable 1-hop neighbors
+  stones:        { density, blocked, slowed }
+  foodNearby:    neighborId | null      // first neighbor with food
+  preyNearby:    neighborId | null      // first neighbor with prey
+  waterNearby:   neighborId | null      // first neighbor near water
+}
 ```
 
 ### Node Structure
