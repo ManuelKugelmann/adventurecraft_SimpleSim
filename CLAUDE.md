@@ -72,7 +72,7 @@ evaluated by **engine code**, organized in layers:
 
 | Layer | Data | Code | Location |
 |---|---|---|---|
-| L0 Base | `BASE_RULE_DEFS` — action consequence costs (move, graze, hunt, flee) | `Rules.applyActionCost()` | rules.js |
+| L0 Base | `ACTION_DEFS` — action costs inline as `{type:'vital'}` effects | `Effects.executeAction()` | rules.js |
 | L1 Bio | `BIO_RULE_DEFS` — passive drains, damage, death (no perception) | `Rules.biology()` | rules.js |
 | L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce) | `Rules.reflex()` | rules.js |
 | L3 Roles | `ROLE_DEFS` — condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |

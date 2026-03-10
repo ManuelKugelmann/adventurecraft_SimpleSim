@@ -1,28 +1,31 @@
 // planner.js — Multi-step process definitions (data) + planner engine (code)
 // Process definitions are pure data: step sequences with typed instructions.
 // Planner engine interprets step types generically via Effects engine.
-// No imperative step functions — all behavior described as step data.
+// All effects (movement, costs) are declared inline as data.
 
 // === PROCESS DEFINITIONS (DATA) ===
 // Each process: { initTarget?, fallback?, steps: [...] }
 // Step types:
-//   startmove — initiate movement: { type:'startmove', toward, pickup, cost, label, noTarget? }
+//   startmove — initiate movement: { type:'startmove', toward, pickup, cost:[], label, noTarget? }
 //   wait      — block until movement completes: { type:'wait' }
 //   action    — execute named action: { type:'action', name, valid? }
+// cost: array of effect data applied on successful move
 // Future .acf:
 //   PROCESS findFood
 //     INIT TARGET foodNearby FALLBACK wander
-//     STEP MOVE $target PICKUP COST seek LABEL seek-food
+//     STEP MOVE $target PICKUP COST energy -= 1 LABEL seek-food
 //     STEP WAIT
 //     STEP ACTION graze VALID sense.food.here != null
 
 var PROCESS_DEFS = {
   flee: {
     steps: [
-      { type: 'startmove', toward: 'away_threats', pickup: true, cost: 'flee', label: 'flee',
+      { type: 'startmove', toward: 'away_threats', pickup: true, label: 'flee',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
         noTarget: 'done' },
       { type: 'wait' },
-      { type: 'startmove', toward: 'away_threats', pickup: true, cost: 'flee', label: 'flee',
+      { type: 'startmove', toward: 'away_threats', pickup: true, label: 'flee',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
         noTarget: 'done' },
       { type: 'wait' },
     ],
@@ -31,7 +34,8 @@ var PROCESS_DEFS = {
     initTarget: 'foodNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, cost: 'seek', label: 'seek-food' },
+      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-food',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
       { type: 'action', name: 'graze', valid: [['sense.food.here', '!=', null]] },
     ],
@@ -40,7 +44,8 @@ var PROCESS_DEFS = {
     initTarget: 'waterNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, cost: 'seek', label: 'seek-water' },
+      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-water',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
     ],
   },
@@ -48,7 +53,8 @@ var PROCESS_DEFS = {
     initTarget: 'preyNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, cost: 'seek', label: 'seek-prey' },
+      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-prey',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
       { type: 'action', name: 'hunt', valid: [['sense.prey.here', '!=', null]] },
     ],
@@ -69,7 +75,6 @@ var Planner = {
       var sense = Sense.scan(node);
       target = sense[def.initTarget];
       if (!target) {
-        // No target found — execute fallback action
         if (def.fallback) Effects.executeAction(def.fallback, node, sense);
         return;
       }
@@ -96,12 +101,10 @@ var Planner = {
     switch (step.type) {
 
       case 'startmove':
-        // Resolve target
         var toward = step.toward === '$target' ? plan.target : step.toward;
         if (toward === 'away_threats') {
           toward = Effects._awayFromThreats(node, sense);
           if (!toward) {
-            // No threats to flee from — step complete or plan done
             if (step.noTarget === 'done') { agency.activePlan = null; }
             else { this._advance(plan, agency); }
             return;
@@ -109,16 +112,14 @@ var Planner = {
         }
         if (!toward) { agency.activePlan = null; return; }
 
-        // Execute movement via effects engine
         var result = Effects._move({ toward: toward, pickup: step.pickup }, node, sense);
         if (result.status === 'ok') {
-          Rules.applyActionCost(node, step.cost);
-          node.traits.agency.lastAction = step.label || step.cost;
+          if (step.cost) Effects.applyEffects(step.cost, node, sense);
+          node.traits.agency.lastAction = step.label;
           this._advance(plan, agency);
         } else {
-          // blocked/slowed/fail — apply cost and abort plan
           if (result.status === 'blocked' || result.status === 'slowed') {
-            Rules.applyActionCost(node, step.cost);
+            if (step.cost) Effects.applyEffects(step.cost, node, sense);
             node.traits.agency.lastAction = result.label;
           }
           agency.activePlan = null;
@@ -126,14 +127,12 @@ var Planner = {
         break;
 
       case 'wait':
-        if (World.isMoving(node)) return; // still in transit
+        if (World.isMoving(node)) return;
         this._advance(plan, agency);
-        // Try next step immediately (e.g., action after arrival)
         if (agency.activePlan) this.executeStep(node);
         break;
 
       case 'action':
-        // Validate precondition against sense model
         if (step.valid && !evalRuleConditions(step.valid, node.traits.vitals, sense, node.count)) {
           agency.activePlan = null;
           return;

@@ -1,20 +1,7 @@
 // rules.js — Rule layers: declarative data + effect engine
 // ALL simulation behavior is described as rule data. The engine executes rules.
-// Layers: L0 Base (action costs) → L1 Bio (passive) → L2 Reflex (involuntary)
-// Actions: ACTION_DEFS describe effects as data, Effects engine interprets them.
-
-// === L0: BASE RULE DEFINITIONS — action consequence costs (DATA) ===
-// Applied after each action via Rules.applyActionCost(node, actionType).
-// Future .acf:  BASE graze  COST energy -= 0.5
-
-var BASE_RULE_DEFS = {
-  graze:  [{ target: 'energy', op: 'sub', amount: 0.5 }],
-  hunt:   [{ target: 'energy', op: 'sub', amount: 3 }],
-  rest:   [{ target: 'energy', op: 'add', amount: 5, cap: 100 }],
-  move:   [{ target: 'energy', op: 'sub', amount: 0.5 }],
-  flee:   [{ target: 'energy', op: 'sub', amount: 1 }],
-  seek:   [{ target: 'energy', op: 'sub', amount: 1 }],
-};
+// Layers: L1 Bio (passive) → L2 Reflex (involuntary) → L3 Actions/Plans (voluntary)
+// Actions: ACTION_DEFS describe ALL effects as data, Effects engine interprets them.
 
 // === L1: BIOLOGY RULE DEFINITIONS — passive world sim (DATA) ===
 // Pure vitals → vitals. No perception needed. Runs every tick on animals.
@@ -66,37 +53,42 @@ var REFLEX_RULE_DEFS = [
            ['health', '>', 50], ['thirst', '<', 50], ['count', '>=', 2]] },
 ];
 
-// === L3: ACTION DEFINITIONS — what actions do to the world (DATA) ===
-// Each action: { effects: [...], cost: 'baseRuleName' }
+// === L3: ACTION DEFINITIONS — complete effect descriptions (DATA) ===
+// Each action: { effects: [...] } — ALL consequences listed explicitly.
 // Effect types:
-//   consume — eat from source:  { type:'consume', source:'food', rate:R, perUnit:P }
-//   combat  — hunt prey:        { type:'combat', source:'prey', killRate:R, perKill:P, lossRate:L, damageBase:D }
+//   vital   — change a vital:   { type:'vital', target:'energy', op:'sub', amount:0.5 }
+//   consume — eat from source:  { type:'consume', source:'food', vital:'hunger', rate:R, perUnit:P }
+//   combat  — hunt prey:        { type:'combat', source:'prey', vital:'hunger', killRate:R, perKill:P, lossRate:L, damageBase:D }
 //   move    — start movement:   { type:'move', toward:'random'|'away_threats'|groupId, pickup:bool, antiCircle:bool }
-// Future .acf:  ACTION graze  CONSUME food RATE 0.3 PER_UNIT 0.8  COST graze
+// Future .acf:
+//   ACTION graze
+//     CONSUME food VITAL hunger RATE 0.3 PER_UNIT 0.8
+//     VITAL energy -= 0.5
 
 var ACTION_DEFS = {
   graze: {
     effects: [
-      { type: 'consume', source: 'food', rate: CONFIG.FEED_RATE, perUnit: CONFIG.FOOD_PER_PLANT },
+      { type: 'consume', source: 'food', vital: 'hunger', rate: CONFIG.FEED_RATE, perUnit: CONFIG.FOOD_PER_PLANT },
+      { type: 'vital', target: 'energy', op: 'sub', amount: 0.5 },
     ],
-    cost: 'graze',
   },
   hunt: {
     effects: [
-      { type: 'combat', source: 'prey', killRate: CONFIG.KILL_RATE, perKill: CONFIG.FOOD_PER_PREY,
+      { type: 'combat', source: 'prey', vital: 'hunger', killRate: CONFIG.KILL_RATE, perKill: CONFIG.FOOD_PER_PREY,
         lossRate: 0.05, damageBase: 5 },
+      { type: 'vital', target: 'energy', op: 'sub', amount: 3 },
     ],
-    cost: 'hunt',
   },
   rest: {
-    effects: [],
-    cost: 'rest',
+    effects: [
+      { type: 'vital', target: 'energy', op: 'add', amount: 5, cap: 100 },
+    ],
   },
   wander: {
     effects: [
       { type: 'move', toward: 'random', pickup: true, antiCircle: true },
+      { type: 'vital', target: 'energy', op: 'sub', amount: 0.5 },
     ],
-    cost: 'move',
   },
 };
 
@@ -133,17 +125,6 @@ var Rules = {
     this._runRuleTable(REFLEX_RULE_DEFS, node, v, sense);
     this._deathCheck(node);
     computeSpread(node);
-  },
-
-  // L0: Apply action consequence costs from BASE_RULE_DEFS
-  applyActionCost: function(node, actionType) {
-    var costs = BASE_RULE_DEFS[actionType];
-    if (!costs) return;
-    var v = node.traits.vitals;
-    if (!v) return;
-    for (var i = 0; i < costs.length; i++) {
-      this._applyVitalChange(v, costs[i]);
-    }
   },
 
   // --- Shared engine internals ---
@@ -215,11 +196,11 @@ var Rules = {
 };
 
 // === EFFECTS ENGINE (CODE) ===
-// Generic interpreter for action effect definitions.
-// Each effect type has a handler that mutates world state.
+// Generic interpreter for effect data. Each effect type has a handler.
+// Actions list ALL their effects explicitly — costs, mutations, movement.
 
 var Effects = {
-  // Execute a named action: apply all its effects, then base cost
+  // Execute a named action: apply all its effects in order
   executeAction: function(name, node, sense) {
     var def = ACTION_DEFS[name];
     if (!def) return;
@@ -228,13 +209,20 @@ var Effects = {
       var result = this.apply(def.effects[i], node, sense);
       if (result && result.label) label = result.label;
     }
-    if (def.cost) Rules.applyActionCost(node, def.cost);
     node.traits.agency.lastAction = label;
+  },
+
+  // Apply an array of effects (used by planner step costs)
+  applyEffects: function(effects, node, sense) {
+    for (var i = 0; i < effects.length; i++) {
+      this.apply(effects[i], node, sense);
+    }
   },
 
   // Dispatch an effect to its handler
   apply: function(effect, node, sense) {
     switch (effect.type) {
+      case 'vital':   Rules._applyVitalChange(node.traits.vitals, effect); return null;
       case 'consume': return this._consume(effect, node, sense);
       case 'combat':  return this._combat(effect, node, sense);
       case 'move':    return this._move(effect, node, sense);
@@ -244,7 +232,7 @@ var Effects = {
 
   // --- Effect type handlers ---
 
-  // consume: eat plants/seeds from source in current container
+  // consume: eat from source, reduce vital
   _consume: function(effect, node, sense) {
     var source = sense[effect.source].here;
     if (!source) return null;
@@ -252,12 +240,12 @@ var Effects = {
     eaten = Math.max(1, Math.round(eaten));
     source.count -= eaten;
     if (source.count <= 0) source.alive = false;
-    node.traits.vitals.hunger -= eaten * effect.perUnit / Math.max(1, node.count);
-    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+    node.traits.vitals[effect.vital] -= eaten * effect.perUnit / Math.max(1, node.count);
+    node.traits.vitals[effect.vital] = Math.max(0, node.traits.vitals[effect.vital]);
     return null;
   },
 
-  // combat: hunt prey in current container (strength-ratio formula)
+  // combat: hunt prey, reduce vital, apply losses (strength-ratio formula)
   _combat: function(effect, node, sense) {
     var prey = sense[effect.source].here;
     if (!prey || prey.count <= 0) return { label: 'hunt-miss' };
@@ -274,8 +262,8 @@ var Effects = {
     prey.count -= killed;
     if (prey.count <= 0) prey.alive = false;
 
-    node.traits.vitals.hunger -= killed * effect.perKill / Math.max(1, node.count);
-    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+    node.traits.vitals[effect.vital] -= killed * effect.perKill / Math.max(1, node.count);
+    node.traits.vitals[effect.vital] = Math.max(0, node.traits.vitals[effect.vital]);
 
     // Combat losses + health damage (parameterized from effect data)
     var predatorLosses = Math.round(killed * effect.lossRate / Math.max(ratio, 0.1));
@@ -290,7 +278,6 @@ var Effects = {
 
   // move: resolve target, check stone blocking, start graph movement
   _move: function(effect, node, sense) {
-    // Stone blocking (from sense model)
     if (sense.stones.blocked) return { status: 'blocked', label: 'blocked-stones' };
     if (sense.stones.slowed) {
       var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
@@ -325,7 +312,6 @@ var Effects = {
     if (toward === 'away_threats') {
       return this._awayFromThreats(node, sense);
     }
-    // Direct group ID (from plan target)
     return toward;
   },
 
