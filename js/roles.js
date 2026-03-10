@@ -119,6 +119,12 @@ var Roles = {
 
     for (var p = 0; p < node.count; p++) {
       // Virtual individual with jittered vitals
+      var jitteredVitals = {
+        hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
+        energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
+      };
+      if (v.health !== undefined) jitteredVitals.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
+      if (v.thirst !== undefined) jitteredVitals.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
       var virtual = {
         id: node.id,
         templateId: node.templateId,
@@ -126,10 +132,7 @@ var Roles = {
         container: node.container,
         alive: true,
         traits: {
-          vitals: {
-            hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
-            energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
-          },
+          vitals: jitteredVitals,
           diet: node.traits.diet,
           agency: agency,
           spatial: node.traits.spatial,
@@ -183,8 +186,11 @@ var Roles = {
       newNode.center.x = node.center.x;
       newNode.center.y = node.center.y;
       if (node.traits.vitals) {
-        newNode.traits.vitals.hunger = clamp(node.traits.vitals.hunger + (Math.random() - 0.5) * 3, 0, 100);
-        newNode.traits.vitals.energy = clamp(node.traits.vitals.energy + (Math.random() - 0.5) * 3, 0, 100);
+        var sv = node.traits.vitals;
+        newNode.traits.vitals.hunger = clamp(sv.hunger + (Math.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.energy = clamp(sv.energy + (Math.random() - 0.5) * 3, 0, 100);
+        if (sv.health !== undefined) newNode.traits.vitals.health = clamp(sv.health + (Math.random() - 0.5) * 3, 0, 100);
+        if (sv.thirst !== undefined) newNode.traits.vitals.thirst = clamp(sv.thirst + (Math.random() - 0.5) * 3, 0, 100);
       }
       computeSpread(newNode);
       World.nodes.set(newNode.id, newNode);
@@ -228,6 +234,10 @@ var ROLE_DEFS = {
       condition: function(n) { return threatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
+    { name: 'seekWater',
+      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
+      action: function(n) { Planner.start(n, 'findWater'); }
+    },
     { name: 'graze',
       condition: function(n) { return n.traits.vitals.hunger > 35 && foodInContainer(n); },
       action: function(n) { graze(n); }
@@ -251,6 +261,10 @@ var ROLE_DEFS = {
       condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
     },
+    { name: 'seekWater',
+      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
+      action: function(n) { Planner.start(n, 'findWater'); }
+    },
     { name: 'hunt',
       condition: function(n) { return n.traits.vitals.hunger > 30 && preyInContainer(n); },
       action: function(n) { hunt(n); }
@@ -273,6 +287,10 @@ var ROLE_DEFS = {
     { name: 'flee', urgent: true,
       condition: function(n) { return biggerThreatsInContainer(n).length > 0; },
       action: function(n) { Planner.start(n, 'flee'); }
+    },
+    { name: 'seekWater',
+      condition: function(n) { return n.traits.vitals.thirst !== undefined && n.traits.vitals.thirst > 60; },
+      action: function(n) { Planner.start(n, 'findWater'); }
     },
     { name: 'hunt',
       condition: function(n) { return n.traits.vitals.hunger > 50 && preyInContainer(n); },
@@ -336,6 +354,12 @@ function hunt(node) {
   var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
   node.count -= Math.min(predatorLosses, node.count - 1);
 
+  // Combat damage to health
+  if (node.traits.vitals.health !== undefined) {
+    node.traits.vitals.health -= Math.max(1, Math.round(5 / Math.max(ratio, 0.1)));
+    node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
+  }
+
   node.traits.vitals.energy -= 3;
   node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
 }
@@ -349,7 +373,17 @@ function wander(node) {
   if (stoneMoveBlocked(node)) return;
   var neighbors = World.walkableNeighbors(node.container);
   if (neighbors.length === 0) return;
-  var target = neighbors[Math.floor(Math.random() * neighbors.length)];
+  // Avoid returning to previous container (anti-circle)
+  var candidates = neighbors;
+  if (node._lastContainer && neighbors.length > 1) {
+    candidates = [];
+    for (var i = 0; i < neighbors.length; i++) {
+      if (neighbors[i] !== node._lastContainer) candidates.push(neighbors[i]);
+    }
+    if (candidates.length === 0) candidates = neighbors;
+  }
+  var target = candidates[Math.floor(Math.random() * candidates.length)];
+  node._lastContainer = node.container;
   tryPickup(node);
   World.startMove(node, target);
   node.traits.vitals.energy -= 0.5;

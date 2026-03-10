@@ -39,12 +39,19 @@ var Groups = {
             continue;
           }
 
-          // Agents/plants: merge if hunger difference within threshold
+          // Agents/plants: merge if hunger difference within threshold and result fits maxSize
           var va = a.traits.vitals, vb = b.traits.vitals;
-          if (Math.abs(va.hunger - vb.hunger) < gt.mergeThreshold) {
+          if (Math.abs(va.hunger - vb.hunger) < gt.mergeThreshold &&
+              a.count + b.count <= gt.maxSize) {
             var totalCount = a.count + b.count;
             va.hunger = (va.hunger * a.count + vb.hunger * b.count) / totalCount;
             va.energy = (va.energy * a.count + vb.energy * b.count) / totalCount;
+            if (va.health !== undefined && vb.health !== undefined) {
+              va.health = (va.health * a.count + vb.health * b.count) / totalCount;
+            }
+            if (va.thirst !== undefined && vb.thirst !== undefined) {
+              va.thirst = (va.thirst * a.count + vb.thirst * b.count) / totalCount;
+            }
             a.count = totalCount;
             // Transfer contained items from b to a
             for (var ci = 0; ci < b.contains.length; ci++) {
@@ -64,6 +71,7 @@ var Groups = {
   },
 
   // Split: nodes exceeding their group.maxSize → half moves to adjacent container
+  // Prefers food-rich neighbors over random placement
   splitPass: function() {
     var toSplit = [];
     World.nodes.forEach(function(node) {
@@ -78,9 +86,10 @@ var Groups = {
       if (!node.alive) continue;
 
       var neighbors = World.walkableNeighbors(node.container);
-      var targetGroup = neighbors.length > 0
-        ? neighbors[Math.floor(Math.random() * neighbors.length)]
-        : node.container;
+      var targetGroup = node.container; // fallback: stay in same container
+      if (neighbors.length > 0) {
+        targetGroup = this.bestSplitNeighbor(node, neighbors);
+      }
 
       var splitCount = Math.floor(node.count / 2);
       node.count -= splitCount;
@@ -95,16 +104,59 @@ var Groups = {
       newNode.center.y = group.center.y;
       computeSpread(newNode);
 
-      // Copy vitals with slight variation
+      // Preserve vitals from parent with slight variation
       if (node.traits.vitals) {
-        newNode.traits.vitals.hunger = clampVital(node.traits.vitals.hunger + (Math.random() - 0.5) * 5);
-        newNode.traits.vitals.energy = clampVital(node.traits.vitals.energy + (Math.random() - 0.5) * 5);
+        var nv = node.traits.vitals;
+        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Math.random() - 0.5) * 5);
+        newNode.traits.vitals.energy = clampVital(nv.energy + (Math.random() - 0.5) * 5);
+        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Math.random() - 0.5) * 3);
+        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Math.random() - 0.5) * 3);
+      }
+
+      // Preserve agency role from parent
+      if (node.traits.agency && newNode.traits.agency) {
+        newNode.traits.agency.activeRole = node.traits.agency.activeRole;
       }
 
       World.nodes.set(newNode.id, newNode);
       if (!World.byGroup.has(targetGroup)) World.byGroup.set(targetGroup, new Set());
       World.byGroup.get(targetGroup).add(newNode.id);
     }
+  },
+
+  // Score neighbors for split: prefer food-rich, low-threat, low-competition
+  bestSplitNeighbor: function(node, neighbors) {
+    var diet = node.traits.diet;
+    var best = neighbors[0];
+    var bestScore = -Infinity;
+
+    for (var i = 0; i < neighbors.length; i++) {
+      var nId = neighbors[i];
+      var entities = World.groupsInContainer(nId);
+      var food = 0;
+      var competitors = 0;
+
+      for (var j = 0; j < entities.length; j++) {
+        var other = entities[j];
+        if (!other.alive || other.count <= 0) continue;
+        var cat = TEMPLATES[other.templateId].category;
+        // Count food
+        if (diet && diet.eats.indexOf(cat) >= 0) {
+          food += other.count;
+        }
+        // Count same-species competitors
+        if (other.templateId === node.templateId) {
+          competitors += other.count;
+        }
+      }
+
+      var score = food - competitors * 0.5;
+      if (score > bestScore) {
+        bestScore = score;
+        best = nId;
+      }
+    }
+    return best;
   },
 };
 

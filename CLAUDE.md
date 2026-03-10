@@ -27,9 +27,9 @@ The WIP spec defines the full architecture. This prototype implements:
 | Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
 | Rules by layer (L0-L4) | rules.js: biology only (L1). No L0/L2/L3/L4 yet | partial |
 | Roles (reactive behaviors) | roles.js: ROLE_DEFS with condition/action priority lists | aligned |
-| Plans (proactive sequences) | planner.js: PROCESSES with step sequences (flee, findFood, huntPrey) | simplified |
+| Plans (proactive sequences) | planner.js: PROCESSES with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
 | Compound statistics (Weight>1) | Compound execution for large groups, placeholder sim for small | aligned |
-| Split/merge on variance | groups.js: merge on hunger similarity, split on maxSize | simplified |
+| Split/merge on variance | groups.js: merge with maxSize cap, split prefers food-rich neighbors | improved |
 | Scale-adaptive dt | Single fixed dt, no adaptive scaling yet | not implemented |
 | .acf rule format | Hardcoded JS, no parser | not implemented |
 | Fixed-point Q16.16 | JS floats | not implemented |
@@ -43,7 +43,7 @@ The WIP spec defines the full architecture. This prototype implements:
 | ParentNode | parent | Grouping hierarchy (tiles→L1 group→L2 group→...) |
 | ContainerIndex | contains[] | What's physically inside me (carried items) |
 | SpatialTrait | spatial trait | Only has speed, no scale/capacity yet |
-| VitalsTrait | vitals trait | Only hunger/energy, spec has health/thirst/fatigue/mood/wounds/mana |
+| VitalsTrait | vitals trait | hunger/energy/health/thirst; spec also has fatigue/mood/wounds/mana |
 | DrivesTrait | — | Not implemented |
 | AttributesTrait | — | Not implemented |
 | SkillsTrait | — | Not implemented |

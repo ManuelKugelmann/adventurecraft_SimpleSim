@@ -82,7 +82,7 @@ var PROCESSES = {
             if (World.isMoving(n)) return 'continue';
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
-            World.startMove(n, target);
+            if (!World.startMove(n, target)) return 'fail';
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-food';
             return 'continue';
@@ -94,6 +94,42 @@ var PROCESSES = {
           { valid: function(n) { return foodInContainer(n) !== null; },
             exec: function(n) { graze(n); return 'done'; }
           },
+        ]
+      };
+    },
+  },
+
+  findWater: {
+    init: function(node) {
+      // BFS for a group adjacent to water
+      var target = bfsFind(node.container, 4, function(groupId) {
+        var g = World.groups.get(groupId);
+        if (!g) return false;
+        for (var i = 0; i < g.neighbors.length; i++) {
+          var ng = World.groups.get(g.neighbors[i]);
+          if (ng && ng.type === 'water') return true;
+        }
+        return false;
+      });
+      if (!target) {
+        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
+      }
+      return {
+        steps: [
+          { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
+            if (stoneMoveBlocked(n)) return 'fail';
+            tryPickup(n);
+            if (!World.startMove(n, target)) return 'fail';
+            n.traits.vitals.energy -= 1;
+            n.traits.agency.lastAction = 'seek-water';
+            return 'continue';
+          }},
+          { exec: function(n) {
+            if (World.isMoving(n)) return 'continue';
+            // Arrived near water — thirst handled by biology auto-drink
+            return 'done';
+          }},
         ]
       };
     },
@@ -112,7 +148,7 @@ var PROCESSES = {
             if (World.isMoving(n)) return 'continue';
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
-            World.startMove(n, target);
+            if (!World.startMove(n, target)) return 'fail';
             n.traits.vitals.energy -= 1;
             n.traits.agency.lastAction = 'seek-prey';
             return 'continue';
@@ -163,7 +199,7 @@ function fleeContainer(node) {
   if (best !== null) {
     if (stoneMoveBlocked(node)) return 'done';
     tryPickup(node);
-    World.startMove(node, best);
+    if (!World.startMove(node, best)) return 'fail';
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
     return 'continue'; // wait for movement to complete
@@ -171,42 +207,67 @@ function fleeContainer(node) {
   return 'done';
 }
 
-// Find a neighbor group containing plant food
-function findFoodNearby(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.container);
+// BFS on link graph: find first group within maxHops matching a predicate.
+// Returns the first-hop neighbor ID on the path (what to pass to startMove),
+// or null if nothing found. predicate(groupId) returns true if target found there.
+function bfsFind(startContainer, maxHops, predicate) {
+  var visited = {};
+  visited[startContainer] = true;
+  // queue entries: { groupId, firstHop } — firstHop is the immediate neighbor on the path
+  var queue = [];
+  var neighbors = World.walkableNeighbors(startContainer);
   for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInContainer(neighbors[i]);
-    for (var j = 0; j < groups.length; j++) {
-      var other = groups[j];
-      if (!other.alive || other.count <= 0) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      var cat = otherTmpl.category;
-      if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
-        return neighbors[i];
+    visited[neighbors[i]] = true;
+    queue.push({ groupId: neighbors[i], firstHop: neighbors[i], depth: 1 });
+  }
+  var qi = 0;
+  while (qi < queue.length) {
+    var cur = queue[qi++];
+    if (predicate(cur.groupId)) return cur.firstHop;
+    if (cur.depth >= maxHops) continue;
+    var next = World.walkableNeighbors(cur.groupId);
+    for (var j = 0; j < next.length; j++) {
+      if (!visited[next[j]]) {
+        visited[next[j]] = true;
+        queue.push({ groupId: next[j], firstHop: cur.firstHop, depth: cur.depth + 1 });
       }
     }
   }
   return null;
 }
 
-// Find a neighbor group containing prey
-function findPreyNearby(node) {
+// Find a nearby group containing plant food (up to 3 hops via BFS)
+function findFoodNearby(node) {
   var diet = node.traits.diet;
   if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.container);
-  for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInContainer(neighbors[i]);
+  return bfsFind(node.container, 3, function(groupId) {
+    var groups = World.groupsInContainer(groupId);
     for (var j = 0; j < groups.length; j++) {
       var other = groups[j];
       if (!other.alive || other.count <= 0) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      var cat = otherTmpl.category;
-      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
-        return neighbors[i];
+      var cat = TEMPLATES[other.templateId].category;
+      if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
+        return true;
       }
     }
-  }
-  return null;
+    return false;
+  });
+}
+
+// Find a nearby group containing prey (up to 3 hops via BFS)
+function findPreyNearby(node) {
+  var diet = node.traits.diet;
+  if (!diet) return null;
+  return bfsFind(node.container, 3, function(groupId) {
+    var groups = World.groupsInContainer(groupId);
+    for (var j = 0; j < groups.length; j++) {
+      var other = groups[j];
+      if (!other.alive || other.count <= 0) continue;
+      var cat = TEMPLATES[other.templateId].category;
+      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
+        return true;
+      }
+    }
+    return false;
+  });
 }

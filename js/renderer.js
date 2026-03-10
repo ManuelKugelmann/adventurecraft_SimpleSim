@@ -384,7 +384,10 @@ var Renderer = {
 
     if (n.traits.vitals) {
       var v = n.traits.vitals;
-      parts.push('hunger:' + Math.round(v.hunger) + ' energy:' + Math.round(v.energy));
+      var vitalStr = 'hunger:' + Math.round(v.hunger) + ' energy:' + Math.round(v.energy);
+      if (v.health !== undefined) vitalStr += ' health:' + Math.round(v.health);
+      if (v.thirst !== undefined) vitalStr += ' thirst:' + Math.round(v.thirst);
+      parts.push(vitalStr);
     }
     if (n.position && n.position.target !== null) {
       var posAt = n.position.at === 'center' ? 'C' : '#' + n.position.at;

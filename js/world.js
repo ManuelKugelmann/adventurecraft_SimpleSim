@@ -319,6 +319,14 @@ var World = {
       var group = self.groups.get(node.container);
       if (!group) { node.position.target = null; return; }
 
+      // Validate target still exists in this group's links
+      if (node.position.target !== 'center' && !group.links[node.position.target]) {
+        node.position.target = null;
+        node.position.progress = 0;
+        delete node._pendingMove;
+        return;
+      }
+
       var speed = (node.traits.spatial ? node.traits.spatial.speed : 1);
       var dist = self.groupDist(group, node.position.at, node.position.target);
       var step = speed / Math.max(1, dist);
@@ -385,10 +393,36 @@ var World = {
     node.parent = newContainerId;
     if (!this.byGroup.has(newContainerId)) this.byGroup.set(newContainerId, new Set());
     this.byGroup.get(newContainerId).add(node.id);
-    // Contained items follow carrier
+    // Contained items follow carrier and update their container
     for (var i = 0; i < node.contains.length; i++) {
       var item = this.nodes.get(node.contains[i]);
-      if (item) item.container = newContainerId;
+      if (item) {
+        item.container = newContainerId;
+        item.center.x = node.center.x;
+        item.center.y = node.center.y;
+      }
+    }
+  },
+
+  // Validate node's graph position against its container's links.
+  // Resets stale references (e.g. after container changed externally).
+  validatePosition: function(node) {
+    var group = this.groups.get(node.container);
+    if (!group) return;
+    // Check 'at' — if it references a link that doesn't exist, snap to center
+    if (node.position.at !== 'center' && !group.links[node.position.at]) {
+      node.position.at = 'center';
+      node.position.target = null;
+      node.position.progress = 0;
+      delete node._pendingMove;
+    }
+    // Check 'target' — if it references a link that doesn't exist, cancel move
+    if (node.position.target !== null &&
+        node.position.target !== 'center' &&
+        !group.links[node.position.target]) {
+      node.position.target = null;
+      node.position.progress = 0;
+      delete node._pendingMove;
     }
   },
 
@@ -848,6 +882,8 @@ var World = {
         if (node.traits.vitals) {
           node.traits.vitals.hunger = 10 + Math.random() * 25;
           node.traits.vitals.energy = 60 + Math.random() * 30;
+          if (node.traits.vitals.health !== undefined) node.traits.vitals.health = 80 + Math.random() * 20;
+          if (node.traits.vitals.thirst !== undefined) node.traits.vitals.thirst = 5 + Math.random() * 15;
         }
       }
     }
