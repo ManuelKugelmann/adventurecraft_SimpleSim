@@ -1,11 +1,10 @@
-// rules.js — Rule layers: declarative data + engine
-// Rule definitions are pure data (future target for .acf format parsing).
-// Rule engine interprets the data tables against vitals and sense model.
-// Three layers execute in order: L1 Biology → L2 Reflex → L0 Base (post-action).
+// rules.js — Rule layers: declarative data + effect engine
+// ALL simulation behavior is described as rule data. The engine executes rules.
+// Layers: L0 Base (action costs) → L1 Bio (passive) → L2 Reflex (involuntary)
+// Actions: ACTION_DEFS describe effects as data, Effects engine interprets them.
 
 // === L0: BASE RULE DEFINITIONS — action consequence costs (DATA) ===
 // Applied after each action via Rules.applyActionCost(node, actionType).
-// Maps action type → array of vital effects.
 // Future .acf:  BASE graze  COST energy -= 0.5
 
 var BASE_RULE_DEFS = {
@@ -54,21 +53,52 @@ var BIO_RULE_DEFS = [
 
 // === L2: REFLEX RULE DEFINITIONS — involuntary responses (DATA) ===
 // Needs perception (sense model). Runs after biology.
-// These are non-voluntary behaviors — the entity doesn't choose them.
 // Future .acf:  REFLEX autoDrink  WHEN thirst > 40 AND sense.water.adjacent  APPLY thirst -= 15
 
 var REFLEX_RULE_DEFS = [
-  // Auto-drink: involuntary response to water proximity
   { name: 'autoDrink',     target: 'thirst', op: 'sub', amount: 15, floor: 0,
     requires: 'thirst',
     when: [['thirst', '>', 40], ['sense.water.adjacent', '==', true]] },
 
-  // Reproduction: biological drive, not a choice
   { name: 'reproduce',     effect: 'birth', rate: CONFIG.BIRTH_RATE, min: 1,
     cost: { hunger: 12, energy: -5 },
     when: [['hunger', '<', 40], ['energy', '>', 30],
            ['health', '>', 50], ['thirst', '<', 50], ['count', '>=', 2]] },
 ];
+
+// === L3: ACTION DEFINITIONS — what actions do to the world (DATA) ===
+// Each action: { effects: [...], cost: 'baseRuleName' }
+// Effect types:
+//   consume — eat from source:  { type:'consume', source:'food', rate:R, perUnit:P }
+//   combat  — hunt prey:        { type:'combat', source:'prey', killRate:R, perKill:P, lossRate:L, damageBase:D }
+//   move    — start movement:   { type:'move', toward:'random'|'away_threats'|groupId, pickup:bool, antiCircle:bool }
+// Future .acf:  ACTION graze  CONSUME food RATE 0.3 PER_UNIT 0.8  COST graze
+
+var ACTION_DEFS = {
+  graze: {
+    effects: [
+      { type: 'consume', source: 'food', rate: CONFIG.FEED_RATE, perUnit: CONFIG.FOOD_PER_PLANT },
+    ],
+    cost: 'graze',
+  },
+  hunt: {
+    effects: [
+      { type: 'combat', source: 'prey', killRate: CONFIG.KILL_RATE, perKill: CONFIG.FOOD_PER_PREY,
+        lossRate: 0.05, damageBase: 5 },
+    ],
+    cost: 'hunt',
+  },
+  rest: {
+    effects: [],
+    cost: 'rest',
+  },
+  wander: {
+    effects: [
+      { type: 'move', toward: 'random', pickup: true, antiCircle: true },
+    ],
+    cost: 'move',
+  },
+};
 
 // === RULE ENGINE (CODE) ===
 
@@ -86,7 +116,6 @@ var Rules = {
       return;
     }
 
-    // Animals: run bio rule table (pure vitals, no sense)
     this._runRuleTable(BIO_RULE_DEFS, node, v, null);
     this._deathCheck(node);
     computeSpread(node);
@@ -182,6 +211,149 @@ var Rules = {
       spawnItem(itemType, dropCount, node.container, node.center);
     }
     computeSpread(node);
+  },
+};
+
+// === EFFECTS ENGINE (CODE) ===
+// Generic interpreter for action effect definitions.
+// Each effect type has a handler that mutates world state.
+
+var Effects = {
+  // Execute a named action: apply all its effects, then base cost
+  executeAction: function(name, node, sense) {
+    var def = ACTION_DEFS[name];
+    if (!def) return;
+    var label = name;
+    for (var i = 0; i < def.effects.length; i++) {
+      var result = this.apply(def.effects[i], node, sense);
+      if (result && result.label) label = result.label;
+    }
+    if (def.cost) Rules.applyActionCost(node, def.cost);
+    node.traits.agency.lastAction = label;
+  },
+
+  // Dispatch an effect to its handler
+  apply: function(effect, node, sense) {
+    switch (effect.type) {
+      case 'consume': return this._consume(effect, node, sense);
+      case 'combat':  return this._combat(effect, node, sense);
+      case 'move':    return this._move(effect, node, sense);
+      default:        return null;
+    }
+  },
+
+  // --- Effect type handlers ---
+
+  // consume: eat plants/seeds from source in current container
+  _consume: function(effect, node, sense) {
+    var source = sense[effect.source].here;
+    if (!source) return null;
+    var eaten = Math.min(source.count, node.count * effect.rate);
+    eaten = Math.max(1, Math.round(eaten));
+    source.count -= eaten;
+    if (source.count <= 0) source.alive = false;
+    node.traits.vitals.hunger -= eaten * effect.perUnit / Math.max(1, node.count);
+    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+    return null;
+  },
+
+  // combat: hunt prey in current container (strength-ratio formula)
+  _combat: function(effect, node, sense) {
+    var prey = sense[effect.source].here;
+    if (!prey || prey.count <= 0) return { label: 'hunt-miss' };
+
+    var myStrength = node.count * TEMPLATES[node.templateId].strength;
+    var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
+    var ratio = myStrength / Math.max(preyStrength, 1);
+
+    var expectedKills = node.count * effect.killRate * ratio;
+    var variance = expectedKills * 0.2;
+    var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
+    killed = Math.max(0, Math.min(killed, prey.count));
+
+    prey.count -= killed;
+    if (prey.count <= 0) prey.alive = false;
+
+    node.traits.vitals.hunger -= killed * effect.perKill / Math.max(1, node.count);
+    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
+
+    // Combat losses + health damage (parameterized from effect data)
+    var predatorLosses = Math.round(killed * effect.lossRate / Math.max(ratio, 0.1));
+    node.count -= Math.min(predatorLosses, node.count - 1);
+    if (node.traits.vitals.health !== undefined) {
+      node.traits.vitals.health -= Math.max(1, Math.round(effect.damageBase / Math.max(ratio, 0.1)));
+      node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
+    }
+
+    return { label: killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss' };
+  },
+
+  // move: resolve target, check stone blocking, start graph movement
+  _move: function(effect, node, sense) {
+    // Stone blocking (from sense model)
+    if (sense.stones.blocked) return { status: 'blocked', label: 'blocked-stones' };
+    if (sense.stones.slowed) {
+      var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
+                       (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
+      if (Math.random() < slowChance) return { status: 'slowed', label: 'slowed-stones' };
+    }
+
+    if (effect.pickup) tryPickup(node);
+
+    var target = this._resolveTarget(effect.toward, node, sense);
+    if (!target) return { status: 'no_target' };
+
+    if (effect.antiCircle) node._lastContainer = node.container;
+    if (!World.startMove(node, target)) return { status: 'fail' };
+    return { status: 'ok' };
+  },
+
+  // Resolve a 'toward' value to a concrete group ID
+  _resolveTarget: function(toward, node, sense) {
+    if (toward === 'random') {
+      var candidates = sense.neighbors;
+      if (candidates.length === 0) return null;
+      if (node._lastContainer && candidates.length > 1) {
+        var filtered = [];
+        for (var i = 0; i < candidates.length; i++) {
+          if (candidates[i] !== node._lastContainer) filtered.push(candidates[i]);
+        }
+        if (filtered.length > 0) candidates = filtered;
+      }
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    if (toward === 'away_threats') {
+      return this._awayFromThreats(node, sense);
+    }
+    // Direct group ID (from plan target)
+    return toward;
+  },
+
+  // Pick neighbor farthest from threats
+  _awayFromThreats: function(node, sense) {
+    var threats = sense.threats.here;
+    if (threats.length === 0) threats = sense.biggerThreats.here;
+    if (threats.length === 0) return null;
+
+    var neighbors = sense.neighbors;
+    if (neighbors.length === 0) return null;
+
+    var threatGroup = threats[0].container;
+    var best = null;
+    var bestScore = -Infinity;
+    for (var i = 0; i < neighbors.length; i++) {
+      var nGroup = World.groups.get(neighbors[i]);
+      if (!nGroup) continue;
+      var tGroup = World.groups.get(threatGroup);
+      if (!tGroup) { best = neighbors[i]; break; }
+      var dist = Math.abs(nGroup.center.x - tGroup.center.x) +
+                 Math.abs(nGroup.center.y - tGroup.center.y);
+      if (dist > bestScore) {
+        bestScore = dist;
+        best = neighbors[i];
+      }
+    }
+    return best;
   },
 };
 

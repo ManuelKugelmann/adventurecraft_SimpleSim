@@ -76,8 +76,8 @@ evaluated by **engine code**, organized in layers:
 | L1 Bio | `BIO_RULE_DEFS` — passive drains, damage, death (no perception) | `Rules.biology()` | rules.js |
 | L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce) | `Rules.reflex()` | rules.js |
 | L3 Roles | `ROLE_DEFS` — condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
-| L3 Actions | `ACTIONS` — named action implementations (graze, hunt, rest, wander) | (direct functions) | roles.js |
-| L4 Plans | `PROCESSES` — multi-step plan templates (flee, findFood, findWater, huntPrey) | `Planner.start/executeStep()` | planner.js |
+| L3 Actions | `ACTION_DEFS` — effect descriptions per action (consume, combat, move) | `Effects.executeAction()` | rules.js |
+| L4 Plans | `PROCESS_DEFS` — step sequences (startmove, wait, action) | `Planner.start/executeStep()` | planner.js |
 
 Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
 Fields reference vitals (`hunger`, `thirst`) or sense model paths (`sense.threats.count`).

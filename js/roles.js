@@ -1,13 +1,13 @@
-// roles.js — Role definitions (data) + action implementations (code) + role engine
+// roles.js — Role definitions (data) + role engine (code)
 // Role definitions are pure data (future target for .acf format parsing).
-// Actions are named implementations referenced by role rules.
-// Role engine matches conditions via sense model and dispatches to actions/plans.
+// Role engine matches conditions via sense model, dispatches to Effects engine.
+// No imperative action code — all actions defined in ACTION_DEFS (rules.js).
 
 // === ROLE DEFINITIONS (DATA) ===
 // Each entry: { name, urgent?, when (conditions), action/plan }
 // Conditions: [field, op, value] — evaluated by evalRuleConditions()
 // Priority: first match wins. Urgent: whole group acts in unison.
-// This data block maps directly to a future .acf role format:
+// Future .acf:
 //   ROLE grazer
 //     RULE flee      URGENT  WHEN sense.threats.count > 0         PLAN flee
 //     RULE graze             WHEN hunger > 35 AND sense.food.here != null  ACTION graze
@@ -56,99 +56,6 @@ var ROLE_DEFS = {
   ],
 };
 
-// === ACTION IMPLEMENTATIONS (CODE) ===
-// Named actions referenced by role rules. These are the code bridge
-// between declarative rules and world mutation.
-// Energy/vitals costs are in BASE_RULE_DEFS, applied via Rules.applyActionCost().
-// Combat damage formula stays here for now (too formula-heavy for simple data rules).
-
-var ACTIONS = {
-  graze: function(node, sense) {
-    var food = sense.food.here;
-    if (!food) return;
-
-    var eaten = Math.min(food.count, node.count * CONFIG.FEED_RATE);
-    eaten = Math.max(1, Math.round(eaten));
-    food.count -= eaten;
-    if (food.count <= 0) food.alive = false;
-
-    node.traits.vitals.hunger -= eaten * CONFIG.FOOD_PER_PLANT / Math.max(1, node.count);
-    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
-    Rules.applyActionCost(node, 'graze');
-    node.traits.agency.lastAction = 'graze';
-  },
-
-  hunt: function(node, sense) {
-    var prey = sense.prey.here;
-    if (!prey || prey.count <= 0) return;
-
-    var myStrength = node.count * TEMPLATES[node.templateId].strength;
-    var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
-    var ratio = myStrength / Math.max(preyStrength, 1);
-
-    var expectedKills = node.count * CONFIG.KILL_RATE * ratio;
-    var variance = expectedKills * 0.2;
-    var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
-    killed = Math.max(0, Math.min(killed, prey.count));
-
-    prey.count -= killed;
-    if (prey.count <= 0) prey.alive = false;
-
-    node.traits.vitals.hunger -= killed * CONFIG.FOOD_PER_PREY / Math.max(1, node.count);
-    node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
-
-    // Combat: predator losses + health damage (formula, not yet data-driven)
-    var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
-    node.count -= Math.min(predatorLosses, node.count - 1);
-    if (node.traits.vitals.health !== undefined) {
-      node.traits.vitals.health -= Math.max(1, Math.round(5 / Math.max(ratio, 0.1)));
-      node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
-    }
-
-    Rules.applyActionCost(node, 'hunt');
-    node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
-  },
-
-  rest: function(node) {
-    Rules.applyActionCost(node, 'rest');
-    node.traits.agency.lastAction = 'rest';
-  },
-
-  wander: function(node, sense) {
-    if (sense.stones.blocked) {
-      Rules.applyActionCost(node, 'move');
-      node.traits.agency.lastAction = 'blocked-stones';
-      return;
-    }
-    if (sense.stones.slowed) {
-      var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
-                       (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
-      if (Math.random() < slowChance) {
-        Rules.applyActionCost(node, 'move');
-        node.traits.agency.lastAction = 'slowed-stones';
-        return;
-      }
-    }
-    var neighbors = sense.neighbors;
-    if (neighbors.length === 0) return;
-    // Anti-circle: avoid returning to previous container
-    var candidates = neighbors;
-    if (node._lastContainer && neighbors.length > 1) {
-      candidates = [];
-      for (var i = 0; i < neighbors.length; i++) {
-        if (neighbors[i] !== node._lastContainer) candidates.push(neighbors[i]);
-      }
-      if (candidates.length === 0) candidates = neighbors;
-    }
-    var target = candidates[Math.floor(Math.random() * candidates.length)];
-    node._lastContainer = node.container;
-    tryPickup(node);
-    World.startMove(node, target);
-    Rules.applyActionCost(node, 'move');
-    node.traits.agency.lastAction = 'wander';
-  },
-};
-
 // === ROLE ENGINE (CODE) ===
 
 var Roles = {
@@ -156,13 +63,11 @@ var Roles = {
     var agency = node.traits.agency;
     if (!agency) return;
 
-    // Continue active plan
     if (agency.activePlan) {
       Planner.executeStep(node);
       return;
     }
 
-    // Scan world model once per evaluation
     var sense = Sense.scan(node);
 
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
@@ -172,7 +77,6 @@ var Roles = {
     }
   },
 
-  // Match role rules against vitals and sense model
   _matchRules: function(roleDef, vitals, sense, count) {
     var matches = [];
     for (var i = 0; i < roleDef.length; i++) {
@@ -184,16 +88,14 @@ var Roles = {
     return matches;
   },
 
-  // Execute a matched role rule
   _execRule: function(rule, node, sense) {
     if (rule.action) {
-      ACTIONS[rule.action](node, sense);
+      Effects.executeAction(rule.action, node, sense);
     } else if (rule.plan) {
       Planner.start(node, rule.plan);
     }
   },
 
-  // --- Large groups: compound statistical execution ---
   evaluateCompound: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
@@ -202,7 +104,6 @@ var Roles = {
     var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count);
     if (matches.length === 0) return;
 
-    // Complexity check: fall back to placeholder sim
     if (this._isComplex(node, sense, matches)) {
       this.evaluatePlaceholders(node, sense);
       return;
@@ -211,7 +112,6 @@ var Roles = {
     var primary = matches[0];
     var secondary = matches.length > 1 ? matches[1] : null;
 
-    // Urgent: whole group acts in unison
     if (primary.urgent) {
       this._execRule(primary, node, sense);
       agency.actionSpread = {};
@@ -219,10 +119,8 @@ var Roles = {
       return;
     }
 
-    // Execute primary on whole group
     this._execRule(primary, node, sense);
 
-    // Record statistical spread estimate
     agency.actionSpread = {};
     if (secondary) {
       var pFrac = 0.75 + Math.random() * 0.1;
@@ -243,7 +141,6 @@ var Roles = {
       }
       if (hasUrgent && hasNonUrgent >= 2) return true;
     }
-    // Multiple prey types → compound combat formula unreliable
     if (sense.prey.count > 0) {
       var diet = node.traits.diet;
       if (diet) {
@@ -263,7 +160,6 @@ var Roles = {
     return false;
   },
 
-  // --- Small groups: simulate placeholder individuals ---
   evaluatePlaceholders: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
@@ -273,7 +169,6 @@ var Roles = {
     var actionTally = {};
 
     for (var p = 0; p < node.count; p++) {
-      // Virtual individual with jittered vitals
       var jv = {
         hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
         energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
@@ -281,7 +176,6 @@ var Roles = {
       if (v.health !== undefined) jv.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
       if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
 
-      // Evaluate: first matching condition wins for this placeholder
       for (var i = 0; i < roleDef.length; i++) {
         var rule = roleDef[i];
         if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1)) {
@@ -291,7 +185,6 @@ var Roles = {
       }
     }
 
-    // Find majority action
     var majorAction = null;
     var majorCount = 0;
     var keys = Object.keys(actionTally);
@@ -302,7 +195,6 @@ var Roles = {
       }
     }
 
-    // Single action or group of 1: execute on whole group
     if (keys.length <= 1 || node.count <= 1) {
       if (majorAction) {
         for (var i = 0; i < roleDef.length; i++) {
@@ -316,7 +208,6 @@ var Roles = {
       return;
     }
 
-    // Multiple actions: split off minority factions into new groups
     for (var k = 0; k < keys.length; k++) {
       if (keys[k] === majorAction) continue;
       var splitCount = actionTally[keys[k]];
@@ -340,7 +231,6 @@ var Roles = {
       if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
       World.byGroup.get(node.container).add(newNode.id);
 
-      // Execute the minority action on the split group
       for (var j = 0; j < roleDef.length; j++) {
         if (roleDef[j].name === keys[k]) {
           this._execRule(roleDef[j], newNode, sense);
@@ -349,7 +239,6 @@ var Roles = {
       }
     }
 
-    // Reduce original to majority count, execute majority action
     node.count = majorCount;
     computeSpread(node);
     if (majorAction) {
@@ -416,37 +305,4 @@ function dropContained(node) {
     World.byGroup.get(node.container).add(item.id);
   }
   node.contains = [];
-}
-
-// Stone movement check (used by planner steps that don't have a sense model)
-function stoneMoveBlocked(node) {
-  var group = World.groups.get(node.container);
-  if (!group) return false;
-  var density = stonesInContainer(node.container) / group.tileCount;
-  if (density >= CONFIG.STONE_BLOCK_PER_TILE) {
-    node.traits.vitals.energy -= 0.5;
-    node.traits.agency.lastAction = 'blocked-stones';
-    return true;
-  }
-  if (density >= CONFIG.STONE_SLOW_PER_TILE) {
-    var slowChance = (density - CONFIG.STONE_SLOW_PER_TILE) /
-                     (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
-    if (Math.random() < slowChance) {
-      node.traits.vitals.energy -= 0.5;
-      node.traits.agency.lastAction = 'slowed-stones';
-      return true;
-    }
-  }
-  return false;
-}
-
-function stonesInContainer(regionId) {
-  var groups = World.groupsInContainer(regionId);
-  var total = 0;
-  for (var i = 0; i < groups.length; i++) {
-    if (groups[i].alive && TEMPLATES[groups[i].templateId].category === 'item') {
-      total += groups[i].count;
-    }
-  }
-  return total;
 }
