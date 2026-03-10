@@ -59,6 +59,8 @@ var ROLE_DEFS = {
 // === ACTION IMPLEMENTATIONS (CODE) ===
 // Named actions referenced by role rules. These are the code bridge
 // between declarative rules and world mutation.
+// Energy/vitals costs are in BASE_RULE_DEFS, applied via Rules.applyActionCost().
+// Combat damage formula stays here for now (too formula-heavy for simple data rules).
 
 var ACTIONS = {
   graze: function(node, sense) {
@@ -72,7 +74,7 @@ var ACTIONS = {
 
     node.traits.vitals.hunger -= eaten * CONFIG.FOOD_PER_PLANT / Math.max(1, node.count);
     node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
-    node.traits.vitals.energy -= 0.5;
+    Rules.applyActionCost(node, 'graze');
     node.traits.agency.lastAction = 'graze';
   },
 
@@ -95,27 +97,26 @@ var ACTIONS = {
     node.traits.vitals.hunger -= killed * CONFIG.FOOD_PER_PREY / Math.max(1, node.count);
     node.traits.vitals.hunger = Math.max(0, node.traits.vitals.hunger);
 
+    // Combat: predator losses + health damage (formula, not yet data-driven)
     var predatorLosses = Math.round(killed * 0.05 / Math.max(ratio, 0.1));
     node.count -= Math.min(predatorLosses, node.count - 1);
-
-    // Combat damage to health
     if (node.traits.vitals.health !== undefined) {
       node.traits.vitals.health -= Math.max(1, Math.round(5 / Math.max(ratio, 0.1)));
       node.traits.vitals.health = Math.max(0, node.traits.vitals.health);
     }
 
-    node.traits.vitals.energy -= 3;
+    Rules.applyActionCost(node, 'hunt');
     node.traits.agency.lastAction = killed > 0 ? 'kill(' + killed + ')' : 'hunt-miss';
   },
 
   rest: function(node) {
-    node.traits.vitals.energy = Math.min(100, node.traits.vitals.energy + 5);
+    Rules.applyActionCost(node, 'rest');
     node.traits.agency.lastAction = 'rest';
   },
 
   wander: function(node, sense) {
     if (sense.stones.blocked) {
-      node.traits.vitals.energy -= 0.5;
+      Rules.applyActionCost(node, 'move');
       node.traits.agency.lastAction = 'blocked-stones';
       return;
     }
@@ -123,7 +124,7 @@ var ACTIONS = {
       var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
                        (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
       if (Math.random() < slowChance) {
-        node.traits.vitals.energy -= 0.5;
+        Rules.applyActionCost(node, 'move');
         node.traits.agency.lastAction = 'slowed-stones';
         return;
       }
@@ -143,7 +144,7 @@ var ACTIONS = {
     node._lastContainer = node.container;
     tryPickup(node);
     World.startMove(node, target);
-    node.traits.vitals.energy -= 0.5;
+    Rules.applyActionCost(node, 'move');
     node.traits.agency.lastAction = 'wander';
   },
 };

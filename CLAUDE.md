@@ -25,7 +25,7 @@ The WIP spec defines the full architecture. This prototype implements:
 | Weight (count) | `node.count` — 1=individual, >1=group/batch | aligned |
 | Tiles and regions are nodes | tile_* and tilegroup templates in World.nodes, recursive hierarchy | aligned |
 | Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
-| Rules by layer (L0-L4) | rules.js: biology only (L1). No L0/L2/L3/L4 yet | partial |
+| Rules by layer (L0-L4) | L0 base (action costs), L1 bio (drains/damage), L2 reflex (auto-drink/reproduce), L3 roles, L4 plans | aligned |
 | Roles (reactive behaviors) | roles.js: ROLE_DEFS with condition/action priority lists | aligned |
 | Plans (proactive sequences) | planner.js: PROCESSES with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
 | Compound statistics (Weight>1) | Compound execution for large groups, placeholder sim for small | aligned |
@@ -65,20 +65,24 @@ js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarc
 js/simulation.js    Simulation — tick loop, layer execution order
 ```
 
-### Data / Code Separation
+### Data / Code Separation — Rule Layers
 
 All behavior is defined as **declarative data tables** (future .acf parsing targets)
-evaluated by **engine code**:
+evaluated by **engine code**, organized in layers:
 
-| Data | Code | Location |
-|---|---|---|
-| `BIO_RULE_DEFS` — biology rules: drains, regen, death, reproduction | `Rules._applyVitalChange/Effect()` | rules.js |
-| `ROLE_DEFS` — role condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
-| `ACTIONS` — named action implementations (graze, hunt, rest, wander) | (direct functions) | roles.js |
-| `PROCESSES` — multi-step plan templates (flee, findFood, findWater, huntPrey) | `Planner.start/executeStep()` | planner.js |
+| Layer | Data | Code | Location |
+|---|---|---|---|
+| L0 Base | `BASE_RULE_DEFS` — action consequence costs (move, graze, hunt, flee) | `Rules.applyActionCost()` | rules.js |
+| L1 Bio | `BIO_RULE_DEFS` — passive drains, damage, death (no perception) | `Rules.biology()` | rules.js |
+| L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce) | `Rules.reflex()` | rules.js |
+| L3 Roles | `ROLE_DEFS` — condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
+| L3 Actions | `ACTIONS` — named action implementations (graze, hunt, rest, wander) | (direct functions) | roles.js |
+| L4 Plans | `PROCESSES` — multi-step plan templates (flee, findFood, findWater, huntPrey) | `Planner.start/executeStep()` | planner.js |
 
 Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
 Fields reference vitals (`hunger`, `thirst`) or sense model paths (`sense.threats.count`).
+
+**Layer execution order per tick**: L1 Biology → L2 Reflex → Groups → Movement → L3/L4 Roles+Plans (L0 costs applied per action)
 
 ### Sense Model (Perception)
 
@@ -168,9 +172,11 @@ Role evaluation is skipped while an entity is in transit.
 
 ### Execution Order (per tick)
 
-1. **Biology** (all nodes): hunger drain, plant growth, seed drop, starvation, reproduction
-2. **Groups** (every 5 ticks): merge similar, split oversized
-3. **Actors** (by speed desc): role evaluation → compound or placeholder sim → actions
+1. **L1 Biology** (all nodes): passive drains, damage, death, plant growth, seed drop
+2. **L2 Reflex** (animals): involuntary responses — auto-drink near water, reproduction
+3. **Groups** (every 5 ticks): merge similar, split oversized
+4. **Movement**: advance entities along graph edges
+5. **L3/L4 Actors** (by speed desc): role evaluation → compound or placeholder sim → actions (L0 base costs applied per action)
 
 ### Transport System
 

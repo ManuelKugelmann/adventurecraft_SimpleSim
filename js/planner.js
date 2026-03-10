@@ -88,7 +88,7 @@ var PROCESSES = {
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
             if (!World.startMove(n, target)) return 'fail';
-            n.traits.vitals.energy -= 1;
+            Rules.applyActionCost(n, 'seek');
             n.traits.agency.lastAction = 'seek-food';
             return 'continue';
           }},
@@ -121,7 +121,7 @@ var PROCESSES = {
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
             if (!World.startMove(n, target)) return 'fail';
-            n.traits.vitals.energy -= 1;
+            Rules.applyActionCost(n, 'seek');
             n.traits.agency.lastAction = 'seek-water';
             return 'continue';
           }},
@@ -149,7 +149,7 @@ var PROCESSES = {
             if (stoneMoveBlocked(n)) return 'fail';
             tryPickup(n);
             if (!World.startMove(n, target)) return 'fail';
-            n.traits.vitals.energy -= 1;
+            Rules.applyActionCost(n, 'seek');
             n.traits.agency.lastAction = 'seek-prey';
             return 'continue';
           }},
@@ -202,7 +202,7 @@ function fleeStep(node) {
     if (stoneMoveBlocked(node)) return 'done';
     tryPickup(node);
     if (!World.startMove(node, best)) return 'fail';
-    node.traits.vitals.energy -= 1;
+    Rules.applyActionCost(node, 'flee');
     node.traits.agency.lastAction = 'flee';
     return 'continue';
   }
