@@ -3,8 +3,6 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -12,12 +10,11 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages
   cancel-in-progress: true
 
 jobs:
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -30,46 +27,3 @@ jobs:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
-
-  preview:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Post preview info
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const branch = context.payload.pull_request.head.ref;
-            const sha = context.payload.pull_request.head.sha.substring(0, 7);
-            const stableUrl = `https://${owner}.github.io/${repo}/`;
-            const previewUrl = `https://htmlpreview.github.io/?https://github.com/${owner}/${repo}/blob/${branch}/index.html`;
-            const rawUrl = `https://raw.githack.com/${owner}/${repo}/${branch}/index.html`;
-            const body = [
-              `## Preview`,
-              `| Version | Link |`,
-              `|---------|------|`,
-              `| **Stable** (main) | ${stableUrl} |`,
-              `| **Preview** (${branch} @ ${sha}) | ${rawUrl} |`,
-              ``,
-              `> raw.githack.com serves files from the branch with correct MIME types.`,
-            ].join('\n');
-            const comments = await github.rest.issues.listComments({
-              owner, repo, issue_number: context.issue.number,
-            });
-            const existing = comments.data.find(c =>
-              c.user.type === 'Bot' && c.body.includes('## Preview'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner, repo, comment_id: existing.id, body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: context.issue.number, body,
-              });
-            }

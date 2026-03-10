@@ -1,0 +1,49 @@
+name: PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post preview links
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = context.payload.pull_request.head.ref;
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            const stableUrl = `https://${owner}.github.io/${repo}/`;
+            const rawUrl = `https://raw.githack.com/${owner}/${repo}/${branch}/index.html`;
+            const body = [
+              `## Live Preview`,
+              `| Version | Link |`,
+              `|---------|------|`,
+              `| **Stable** (main) | [${stableUrl}](${stableUrl}) |`,
+              `| **Preview** (\`${branch}\` @ \`${sha}\`) | [raw.githack preview](${rawUrl}) |`,
+              ``,
+              `> Preview served via raw.githack.com (correct MIME types, no build needed).`,
+              `> Stable version deployed via GitHub Pages Actions workflow.`,
+            ].join('\n');
+            const comments = await github.rest.issues.listComments({
+              owner, repo, issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(c =>
+              c.user.type === 'Bot' && c.body.includes('## Live Preview'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: context.issue.number, body,
+              });
+            }
