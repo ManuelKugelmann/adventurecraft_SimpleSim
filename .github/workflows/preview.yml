@@ -1,4 +1,4 @@
-name: PR Preview
+name: PR Preview Comment
 
 on:
   pull_request:
@@ -9,10 +9,9 @@ permissions:
   pull-requests: write
 
 jobs:
-  preview:
+  comment:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - name: Post preview links
         uses: actions/github-script@v7
         with:
@@ -21,17 +20,15 @@ jobs:
             const repo = context.repo.repo;
             const branch = context.payload.pull_request.head.ref;
             const sha = context.payload.pull_request.head.sha.substring(0, 7);
-            const stableUrl = `https://${owner}.github.io/${repo}/`;
-            const rawUrl = `https://raw.githack.com/${owner}/${repo}/${branch}/index.html`;
+            const baseUrl = `https://${owner}.github.io/${repo}`;
             const body = [
               `## Live Preview`,
               `| Version | Link |`,
               `|---------|------|`,
-              `| **Stable** (main) | [${stableUrl}](${stableUrl}) |`,
-              `| **Preview** (\`${branch}\` @ \`${sha}\`) | [raw.githack preview](${rawUrl}) |`,
+              `| **Stable** (main) | [${baseUrl}/stable/](${baseUrl}/stable/) |`,
+              `| **Preview** (\`${branch}\` @ \`${sha}\`) | [${baseUrl}/preview/](${baseUrl}/preview/) |`,
               ``,
-              `> Preview served via raw.githack.com (correct MIME types, no build needed).`,
-              `> Stable version deployed via GitHub Pages Actions workflow.`,
+              `> Both versions deployed to GitHub Pages. Preview updates on each push.`,
             ].join('\n');
             const comments = await github.rest.issues.listComments({
               owner, repo, issue_number: context.issue.number,
