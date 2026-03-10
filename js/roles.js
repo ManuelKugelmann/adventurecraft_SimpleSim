@@ -316,7 +316,7 @@ function graze(node) {
 
 function hunt(node) {
   var prey = preyInContainer(node);
-  if (!prey) return;
+  if (!prey || prey.count <= 0) return;
 
   var myStrength = node.count * TEMPLATES[node.templateId].strength;
   var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;

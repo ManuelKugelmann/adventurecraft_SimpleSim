@@ -110,7 +110,14 @@ group.links[neighborId] = {
 ```
 
 Movement is gradual: `startMove(node, neighborId)` initiates traversal along
-graph edges. Entity moves center→link, crosses to neighbor, then link→center.
+graph edges. Direct link-to-link connections allow entities to skip center when
+passing through a group:
+- **Center route**: center→link→cross→link→center (entity stopping in a group)
+- **Pass-through**: link_in→link_out→cross (entity transiting, skips center)
+
+Link-to-link distance uses direct Manhattan distance between link positions
+instead of summing through center. `_pendingMove` queues the next destination
+so entities chain moves across multiple groups without stopping.
 `advancePositions()` runs each tick to advance all moving entities.
 Role evaluation is skipped while an entity is in transit.
 

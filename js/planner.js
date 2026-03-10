@@ -133,6 +133,7 @@ var PROCESSES = {
 // --- Process helpers ---
 
 function fleeContainer(node) {
+  if (World.isMoving(node)) return 'continue';
   var threats = threatsInContainer(node);
   if (threats.length === 0) threats = biggerThreatsInContainer(node);
   if (threats.length === 0) return 'done';
@@ -165,6 +166,7 @@ function fleeContainer(node) {
     World.startMove(node, best);
     node.traits.vitals.energy -= 1;
     node.traits.agency.lastAction = 'flee';
+    return 'continue'; // wait for movement to complete
   }
   return 'done';
 }

@@ -9,6 +9,10 @@
 //   Level 2 = groups of 3-5 L1 groups
 //   Level 3 = groups of 3-5 L2 groups ... until map is covered
 //
+// Connection graph: each group has links to neighbors. Links connect at border
+// centroids. Movement uses direct link-to-link edges (Manhattan distance between
+// link positions) instead of routing everything through group center.
+//
 // Entity container can point to any level. Position is always tile-level center:{x,y}.
 
 var World = {
@@ -264,29 +268,41 @@ var World = {
 
   // Distance between two points on a group's graph (link or center)
   // fromId/toId: 'center' or neighborId
+  // Link-to-link uses direct Manhattan distance between link positions
+  // instead of routing through center (shorter path for pass-through moves)
   groupDist: function(group, fromId, toId) {
     if (fromId === toId) return 0;
     if (fromId === 'center' && group.links[toId]) return group.links[toId].dist;
     if (toId === 'center' && group.links[fromId]) return group.links[fromId].dist;
-    // Link-to-link: sum of distances through center
-    var dFrom = group.links[fromId] ? group.links[fromId].dist : 1;
-    var dTo = group.links[toId] ? group.links[toId].dist : 1;
+    // Link-to-link: direct Manhattan distance between link positions
+    var fromLink = group.links[fromId];
+    var toLink = group.links[toId];
+    if (fromLink && toLink) {
+      var d = Math.abs(fromLink.pos.x - toLink.pos.x) +
+              Math.abs(fromLink.pos.y - toLink.pos.y);
+      return Math.max(1, d);
+    }
+    // Fallback if a link is missing
+    var dFrom = fromLink ? fromLink.dist : 1;
+    var dTo = toLink ? toLink.dist : 1;
     return dFrom + dTo;
   },
 
   // --- Gradual movement system ---
 
-  // Initiate gradual movement toward a neighbor group
+  // Initiate gradual movement toward a neighbor group.
+  // Direct link-to-link: if at a link, go straight to target link
+  // (no detour through center). If already in transit, queue as pending.
   startMove: function(node, neighborId) {
     var group = this.groups.get(node.container);
     if (!group || !group.links[neighborId]) return false;
-    node.position.target = neighborId;
-    // If at center, move toward the link; if at a link, move toward center first
-    if (node.position.at !== 'center') {
-      // At some link; need to go through center first
-      node.position.target = 'center';
-      node._pendingMove = neighborId; // remember final destination
+    // If already in transit, queue as pending
+    if (node.position.target !== null) {
+      node._pendingMove = neighborId;
+      return true;
     }
+    // Direct: from current position (center or any link) to target link
+    node.position.target = neighborId;
     node.position.progress = 0;
     return true;
   },
@@ -330,10 +346,24 @@ var World = {
           var neighborId = node.position.at;
           var myGroupId = node.container;
           self.transferToGroup(node, neighborId);
-          // In the new group, position starts at the link back to old group, heading to center
+          // In the new group, position starts at the link back to old group
           node.position.at = myGroupId;
-          node.position.target = 'center';
           node.position.progress = 0;
+
+          // Direct link-to-link: if pending move is a neighbor of the
+          // new group, route directly to that link (skip center)
+          if (node._pendingMove) {
+            var pending = node._pendingMove;
+            delete node._pendingMove;
+            var newGroup = self.groups.get(node.container);
+            if (newGroup && newGroup.links[pending]) {
+              node.position.target = pending;
+            } else {
+              node.position.target = 'center';
+            }
+          } else {
+            node.position.target = 'center';
+          }
         }
 
         self.updateNodeCenter(node);
