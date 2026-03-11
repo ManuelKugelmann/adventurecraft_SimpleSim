@@ -189,9 +189,11 @@ var Roles = {
       if (v.health !== undefined) jv.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
       if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
 
+      // Pass null for node to prevent snapshot overriding jittered vitals/count.
+      // Role conditions only use vitals and sense fields, not category/templateId.
       for (var i = 0; i < roleDef.length; i++) {
         var rule = roleDef[i];
-        if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, node)) {
+        if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, null)) {
           actionTally[rule.name] = (actionTally[rule.name] || 0) + 1;
           break;
         }
