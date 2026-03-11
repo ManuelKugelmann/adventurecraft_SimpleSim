@@ -10,15 +10,15 @@
 //   requires — vital field that must exist on this node (skip rule if absent)
 //   prob     — probabilistic trigger 0..1 (checked after conditions pass)
 //
-// Effect types (complete set):
+// Effect types (aligned with spec elementary operations):
 //   vital   — change a vital:     { type:'vital', target, op:'add'|'sub'|'set', amount, cap?, floor? }
-//   kill    — remove count:       { type:'kill', rate?, count?, min? }
+//   destroy — remove count:       { type:'destroy', rate?, count?, min? }
 //   birth   — add count:          { type:'birth', rate, min? }
 //   consume — eat from source:    { type:'consume', source, vital, rate, perUnit }
 //   combat  — hunt from source:   { type:'combat', source, vital, killRate, perKill, lossRate, damageBase }
-//   move    — start movement:     { type:'move', toward, pickup?, antiCircle? }
+//   move    — start movement:     { type:'move', destination, pickup?, antiCircle? }
 //   grow    — plant growth:       { type:'grow', rate, maxPerTile }
-//   spawn   — create item node:   { type:'spawn', countRate, templateMap, defaultTemplate }
+//   create  — create item node:   { type:'create', countRate, templateMap, defaultTemplate }
 //
 // Condition fields: vitals (hunger, thirst, energy, health), count, category, templateId, sense.*
 // Operators: >, <, >=, <=, ==, !=, in
@@ -66,14 +66,14 @@ var BIO_RULE_DEFS = [
   // --- Animal death ---
   { name: 'starvation',
     when: [ANIMAL_COND, ['hunger', '>=', 90]],
-    effects: [{ type: 'kill', rate: CONFIG.STARVE_RATE, min: 1 }] },
+    effects: [{ type: 'destroy', rate: CONFIG.STARVE_RATE, min: 1 }] },
   { name: 'exhaustion',
     when: [ANIMAL_COND, ['energy', '<=', 0]],
-    effects: [{ type: 'kill', count: 1 },
+    effects: [{ type: 'destroy', count: 1 },
               { type: 'vital', target: 'energy', op: 'set', amount: 0 }] },
   { name: 'healthCollapse', requires: 'health',
     when: [ANIMAL_COND, ['health', '<=', 0]],
-    effects: [{ type: 'kill', rate: 0.1, min: 1 },
+    effects: [{ type: 'destroy', rate: 0.1, min: 1 },
               { type: 'vital', target: 'health', op: 'set', amount: 20 }] },
 
   // --- Plant growth ---
@@ -83,7 +83,7 @@ var BIO_RULE_DEFS = [
   { name: 'seedDrop',
     when: [['category', '==', 'plant'], ['count', '>', 10]],
     prob: CONFIG.SEED_DROP_RATE,
-    effects: [{ type: 'spawn', countRate: 0.05,
+    effects: [{ type: 'create', countRate: 0.05,
                 templateMap: { grass: 'grains' }, defaultTemplate: 'seeds' }] },
 ];
 
@@ -129,7 +129,7 @@ var ACTION_DEFS = {
   },
   wander: {
     effects: [
-      { type: 'move', toward: 'random', pickup: true, antiCircle: true },
+      { type: 'move', destination: 'random', pickup: true, antiCircle: true },
       { type: 'vital', target: 'energy', op: 'sub', amount: 0.5 },
     ],
   },
@@ -144,7 +144,6 @@ var Rules = {
     if (!v) return;
 
     this._runRuleTable(BIO_RULE_DEFS, node, v, null);
-    this._deathCheck(node);
     computeSpread(node);
   },
 
@@ -155,7 +154,6 @@ var Rules = {
 
     var sense = Sense.scan(node);
     this._runRuleTable(REFLEX_RULE_DEFS, node, v, sense);
-    this._deathCheck(node);
     computeSpread(node);
   },
 
@@ -169,13 +167,6 @@ var Rules = {
       if (rule.when && !evalRuleConditions(rule.when, v, sense, node.count, node)) continue;
       if (rule.prob !== undefined && Math.random() >= rule.prob) continue;
       Effects.applyEffects(rule.effects, node, sense);
-    }
-  },
-
-  _deathCheck: function(node) {
-    if (node.count <= 0) {
-      dropContained(node);
-      node.alive = false;
     }
   },
 };
@@ -208,13 +199,13 @@ var Effects = {
   apply: function(effect, node, sense) {
     switch (effect.type) {
       case 'vital':   return this._vital(effect, node);
-      case 'kill':    return this._kill(effect, node);
+      case 'destroy': return this._destroy(effect, node);
       case 'birth':   return this._birth(effect, node);
       case 'consume': return this._consume(effect, node, sense);
       case 'combat':  return this._combat(effect, node, sense);
       case 'move':    return this._move(effect, node, sense);
       case 'grow':    return this._grow(effect, node);
-      case 'spawn':   return this._spawn(effect, node);
+      case 'create':  return this._create(effect, node);
       default:        return null;
     }
   },
@@ -231,7 +222,7 @@ var Effects = {
     return null;
   },
 
-  _kill: function(effect, node) {
+  _destroy: function(effect, node) {
     var deaths = effect.count !== undefined
       ? effect.count
       : Math.max(effect.min || 1, Math.ceil(node.count * effect.rate));
@@ -301,7 +292,7 @@ var Effects = {
 
     if (effect.pickup) tryPickup(node);
 
-    var target = this._resolveTarget(effect.toward, node, sense);
+    var target = this._resolveDestination(effect.destination, node, sense);
     if (!target) return { status: 'no_target' };
 
     if (effect.antiCircle) node._lastContainer = node.container;
@@ -320,18 +311,18 @@ var Effects = {
     return null;
   },
 
-  _spawn: function(effect, node) {
+  _create: function(effect, node) {
     // prob filtering is at rule level (prob field on rule def)
     var template = (effect.templateMap && effect.templateMap[node.templateId]) || effect.defaultTemplate;
     var dropCount = Math.max(1, Math.floor(node.count * effect.countRate));
-    spawnItem(template, dropCount, node.container, node.center);
+    createItem(template, dropCount, node.container, node.center);
     return null;
   },
 
-  // --- Target resolution ---
+  // --- Destination resolution ---
 
-  _resolveTarget: function(toward, node, sense) {
-    if (toward === 'random') {
+  _resolveDestination: function(destination, node, sense) {
+    if (destination === 'random') {
       var candidates = sense.neighbors;
       if (candidates.length === 0) return null;
       if (node._lastContainer && candidates.length > 1) {
@@ -343,10 +334,10 @@ var Effects = {
       }
       return candidates[Math.floor(Math.random() * candidates.length)];
     }
-    if (toward === 'away_threats') {
+    if (destination === 'away_threats') {
       return this._awayFromThreats(node, sense);
     }
-    return toward;
+    return destination;
   },
 
   _awayFromThreats: function(node, sense) {
@@ -376,8 +367,8 @@ var Effects = {
   },
 };
 
-// Spawn an item node in a container
-function spawnItem(templateId, count, containerId, center) {
+// Create an item node in a container
+function createItem(templateId, count, containerId, center) {
   var node = createNode(templateId);
   node.count = count;
   node.container = containerId;

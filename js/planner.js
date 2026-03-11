@@ -1,30 +1,33 @@
-// planner.js — Multi-step process definitions (data) + planner engine (code)
-// Process definitions are pure data: step sequences with typed instructions.
+// planner.js — Multi-step plan definitions (data) + planner engine (code)
+// Plan definitions are pure data: step sequences with typed instructions.
 // Planner engine interprets step types generically via Effects engine.
 // All effects (movement, costs) are declared inline as data.
 
-// === PROCESS DEFINITIONS (DATA) ===
-// Each process: { initTarget?, fallback?, steps: [...] }
+// === PLAN DEFINITIONS (DATA) ===
+// Each plan: { initTarget?, fallback?, steps: [...] }
 // Step types:
-//   startmove — initiate movement: { type:'startmove', toward, pickup, cost:[], label, noTarget? }
+//   startmove — initiate movement: { type:'startmove', destination, pickup, cost:[], label, noTarget? }
 //   wait      — block until movement completes: { type:'wait' }
 //   action    — execute named action: { type:'action', name, valid? }
 // cost: array of effect data applied on successful move
 // Future .acf:
-//   PROCESS findFood
-//     INIT TARGET foodNearby FALLBACK wander
-//     STEP MOVE $target PICKUP COST energy -= 1 LABEL seek-food
-//     STEP WAIT
-//     STEP ACTION graze VALID sense.food.here != null
+//   plan findFood [survival, universal] {
+//     params { target = SpatialRef }
+//     method walk {
+//       needs { self.knows(route_to($target, walking)) }
+//       step: do Move.Direct { destination = $target }
+//       action: do graze { valid: sense.food.here != null }
+//     }
+//   }
 
-var PROCESS_DEFS = {
+var PLAN_DEFS = {
   flee: {
     steps: [
-      { type: 'startmove', toward: 'away_threats', pickup: true, label: 'flee',
+      { type: 'startmove', destination: 'away_threats', pickup: true, label: 'flee',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
         noTarget: 'done' },
       { type: 'wait' },
-      { type: 'startmove', toward: 'away_threats', pickup: true, label: 'flee',
+      { type: 'startmove', destination: 'away_threats', pickup: true, label: 'flee',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
         noTarget: 'done' },
       { type: 'wait' },
@@ -34,7 +37,7 @@ var PROCESS_DEFS = {
     initTarget: 'foodNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-food',
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-food',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
       { type: 'action', name: 'graze', valid: [['sense.food.here', '!=', null]] },
@@ -44,7 +47,7 @@ var PROCESS_DEFS = {
     initTarget: 'waterNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-water',
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-water',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
     ],
@@ -53,7 +56,7 @@ var PROCESS_DEFS = {
     initTarget: 'preyNearby',
     fallback: 'wander',
     steps: [
-      { type: 'startmove', toward: '$target', pickup: true, label: 'seek-prey',
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-prey',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
       { type: 'wait' },
       { type: 'action', name: 'hunt', valid: [['sense.prey.here', '!=', null]] },
@@ -64,9 +67,9 @@ var PROCESS_DEFS = {
 // === PLANNER ENGINE (CODE) ===
 
 var Planner = {
-  start: function(node, processName) {
+  start: function(node, planName) {
     var agency = node.traits.agency;
-    var def = PROCESS_DEFS[processName];
+    var def = PLAN_DEFS[planName];
     if (!def) return;
 
     // Resolve init target from sense model
@@ -80,7 +83,7 @@ var Planner = {
       }
     }
 
-    agency.activePlan = { goal: processName, steps: def.steps, target: target, stepIdx: 0 };
+    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0 };
     this.executeStep(node);
   },
 
@@ -100,18 +103,18 @@ var Planner = {
     switch (step.type) {
 
       case 'startmove':
-        var toward = step.toward === '$target' ? plan.target : step.toward;
-        if (toward === 'away_threats') {
-          toward = Effects._awayFromThreats(node, sense);
-          if (!toward) {
+        var dest = step.destination === '$target' ? plan.target : step.destination;
+        if (dest === 'away_threats') {
+          dest = Effects._awayFromThreats(node, sense);
+          if (!dest) {
             if (step.noTarget === 'done') { agency.activePlan = null; }
             else { this._advance(plan, agency); }
             return;
           }
         }
-        if (!toward) { agency.activePlan = null; return; }
+        if (!dest) { agency.activePlan = null; return; }
 
-        var result = Effects._move({ toward: toward, pickup: step.pickup }, node, sense);
+        var result = Effects._move({ destination: dest, pickup: step.pickup }, node, sense);
         if (result.status === 'ok') {
           if (step.cost) Effects.applyEffects(step.cost, node, sense);
           node.traits.agency.lastAction = step.label;

@@ -27,7 +27,7 @@ The WIP spec defines the full architecture. This prototype implements:
 | Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
 | Rules by layer (L0-L4) | L0 base (action costs), L1 bio (drains/damage), L2 reflex (auto-drink/reproduce), L3 roles, L4 plans | aligned |
 | Roles (reactive behaviors) | roles.js: ROLE_DEFS with numeric priority (0-95), sorted by priority desc | aligned |
-| Plans (proactive sequences) | planner.js: PROCESSES with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
+| Plans (proactive sequences) | planner.js: PLAN_DEFS with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
 | Compound statistics (Weight>1) | Compound execution for large groups, placeholder sim for small | aligned |
 | Split/merge on variance | groups.js: merge with maxSize cap, split prefers food-rich neighbors | improved |
 | Read/write separation | snapshot.js: per-layer state snapshot; reads from snapshot, writes to live | aligned |
@@ -62,7 +62,7 @@ js/snapshot.js      Snapshot — read/write separation via state snapshots per r
 js/sense.js         Sense.scan() — range-limited world model per entity; evalRuleConditions()
 js/rules.js         BIO_RULE_DEFS (data) + Rules engine (code) — biology as declarative rule table
 js/roles.js         ROLE_DEFS (data) + Roles engine — behavior as declarative rules
-js/planner.js       Planner + PROCESSES — multi-step plans using sense model (no omniscient search)
+js/planner.js       Planner + PLAN_DEFS — multi-step plans using sense model (no omniscient search)
 js/groups.js        Groups — merge/split passes for nodes with group trait
 js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarchy borders, inspector
 js/simulation.js    Simulation — tick loop, layer execution order
@@ -80,7 +80,7 @@ evaluated by **engine code**, organized in layers:
 | L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce) | `Rules.reflex()` | rules.js |
 | L3 Roles | `ROLE_DEFS` — condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
 | L3 Actions | `ACTION_DEFS` — effect descriptions per action (consume, combat, move) | `Effects.executeAction()` | rules.js |
-| L4 Plans | `PROCESS_DEFS` — step sequences (startmove, wait, action) | `Planner.start/executeStep()` | planner.js |
+| L4 Plans | `PLAN_DEFS` — step sequences (startmove, wait, action) | `Planner.start/executeStep()` | planner.js |
 
 Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
 Fields: vitals (`hunger`, `thirst`), `count`, `category`, `templateId`, sense paths (`sense.threats.count`).
