@@ -336,10 +336,11 @@ var Renderer = {
   },
 
   inspect: function(x, y) {
-    var tile = World.tileAt(x, y);
     var groupId = World.groupOfTile[y * World.width + x];
+    this.inspectedGroupId = groupId;
+    this.inspectedTile = { x: x, y: y };
 
-    // Find closest entity to clicked tile across all entities
+    // Find closest entity to clicked tile for detail selection
     var best = null;
     var bestDist = Infinity;
     World.nodes.forEach(function(node) {
@@ -354,25 +355,12 @@ var Renderer = {
       }
     });
 
-    // Select entity if click is within its spread + 1
     if (best && bestDist <= best.spread + 1) {
       this.selectedNode = best;
-      this.updateInspector();
     } else {
       this.selectedNode = null;
-      var group = World.groups.get(groupId);
-      var hierParts = [];
-      var g = group;
-      while (g) {
-        hierParts.push('L' + g.level + '#' + g.id + '(' + g.tileCount + ')');
-        g = g.parentGroup ? World.groups.get(g.parentGroup) : null;
-      }
-      var linkCount = group && group.links ? Object.keys(group.links).length : 0;
-      this.inspectorEl.innerHTML = '<b>Tile</b> (' + x + ',' + y + ') ' + tile.type +
-        ' | ' + hierParts.join(' → ') +
-        ' | fertility: ' + tile.fertility.toFixed(2) +
-        ' | links: ' + linkCount;
     }
+    this.updateInspector();
   },
 
   _formatVal: function(val, depth) {
@@ -419,71 +407,183 @@ var Renderer = {
     return '<div class="insp-section">' + html + '</div>';
   },
 
+  // Summarize entities in a container, grouped by category
+  _summarizeEntities: function(entities) {
+    var byCategory = {};
+    for (var i = 0; i < entities.length; i++) {
+      var e = entities[i];
+      if (!e.alive) continue;
+      var tmpl = TEMPLATES[e.templateId];
+      var cat = tmpl.category;
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(e);
+    }
+    return byCategory;
+  },
+
+  // Build a compact entity line: symbol count (per-individual vitals)
+  _entityLine: function(node) {
+    var tmpl = TEMPLATES[node.templateId];
+    var line = '<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span> ' +
+      node.templateId + ' <span class="insp-val">×' + Math.floor(node.count) + '</span>';
+    if (node.traits.vitals) {
+      var v = node.traits.vitals;
+      var parts = [];
+      parts.push('h:' + Math.floor(v.hunger));
+      parts.push('e:' + Math.floor(v.energy));
+      if (v.health !== undefined) parts.push('hp:' + Math.floor(v.health));
+      if (v.thirst !== undefined) parts.push('t:' + Math.floor(v.thirst));
+      line += ' <span class="insp-null">[' + parts.join(' ') + ']</span>';
+    }
+    if (node.traits.agency) {
+      var a = node.traits.agency;
+      if (a.activeRole) line += ' <span class="insp-key">' + a.activeRole + '</span>';
+      if (a.activePlan) line += '→<span class="insp-val">' + a.activePlan.goal + '</span>';
+      else if (a.lastAction) line += ':' + a.lastAction;
+    }
+    if (node.contains && node.contains.length > 0) {
+      var carried = [];
+      for (var ci = 0; ci < node.contains.length; ci++) {
+        var item = World.nodes.get(node.contains[ci]);
+        if (item && item.alive) {
+          var it = TEMPLATES[item.templateId];
+          carried.push(it.symbol + '×' + Math.floor(item.count));
+        }
+      }
+      if (carried.length) line += ' [' + carried.join(',') + ']';
+    }
+    return line;
+  },
+
+  // Build a hierarchy level row: group info + all occupant entities
+  _buildLevelRow: function(group, level, isSelected) {
+    var entities = World.groupsInContainerDeep(group.id);
+    var byCategory = this._summarizeEntities(entities);
+    var linkCount = group.links ? Object.keys(group.links).length : 0;
+
+    var cls = 'insp-level' + (isSelected ? ' insp-level-selected' : '');
+    var html = '<div class="' + cls + '">';
+
+    // Level header
+    html += '<div class="insp-level-header">';
+    html += '<span class="insp-label">L' + level + '</span> ';
+    html += '<b>#' + group.id + '</b> ' + (group.type || '?') +
+      ' <span class="insp-val">' + group.tileCount + 't</span>' +
+      ' fert:<span class="insp-val">' + group.fertility.toFixed(2) + '</span>' +
+      ' links:<span class="insp-val">' + linkCount + '</span>';
+    if (group.children) {
+      html += ' children:<span class="insp-val">' + group.children.length + '</span>';
+    }
+    html += '</div>';
+
+    // Entity categories
+    var catOrder = ['herbivore', 'omnivore', 'carnivore', 'plant', 'seed', 'item'];
+    var catLabels = {
+      herbivore: 'Herbivores', omnivore: 'Omnivores', carnivore: 'Carnivores',
+      plant: 'Plants', seed: 'Seeds', item: 'Items'
+    };
+
+    var hasEntities = false;
+    for (var ci = 0; ci < catOrder.length; ci++) {
+      var cat = catOrder[ci];
+      var list = byCategory[cat];
+      if (!list || list.length === 0) continue;
+      hasEntities = true;
+
+      // Aggregate count for category
+      var totalCount = 0;
+      for (var ei = 0; ei < list.length; ei++) totalCount += Math.floor(list[ei].count);
+
+      html += '<div class="insp-cat">';
+      html += '<span class="insp-cat-label">' + catLabels[cat] + ' (' + list.length +
+        ' grp, ×' + totalCount + ')</span>';
+
+      // Show each entity group
+      for (var ei = 0; ei < list.length; ei++) {
+        var sel = (this.selectedNode && list[ei].id === this.selectedNode.id);
+        html += '<div class="insp-entity' + (sel ? ' insp-entity-sel' : '') + '">' +
+          this._entityLine(list[ei]) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    if (!hasEntities) {
+      html += '<div class="insp-cat"><span class="insp-null">empty</span></div>';
+    }
+
+    html += '</div>';
+    return html;
+  },
+
   updateInspector: function() {
-    var n = this.selectedNode;
-    if (!n || !n.alive) {
-      this.selectedNode = null;
+    if (!this.inspectedGroupId && this.inspectedGroupId !== 0) {
       this.inspectorEl.innerHTML = '';
       return;
     }
+
+    // Check if selectedNode is still alive
+    if (this.selectedNode && !this.selectedNode.alive) {
+      this.selectedNode = null;
+    }
+
+    var groupId = this.inspectedGroupId;
+    var group = World.groups.get(groupId);
+    if (!group) {
+      this.inspectorEl.innerHTML = '';
+      return;
+    }
+
+    // Tile info header
+    var tile = World.tileAt(this.inspectedTile.x, this.inspectedTile.y);
+    var html = '<div class="insp-header">';
+    html += '<b>Tile</b> (' + this.inspectedTile.x + ',' + this.inspectedTile.y + ') ' + tile.type +
+      ' fert:' + tile.fertility.toFixed(2);
+
+    // Sense toggle for selected entity
+    if (this.selectedNode && this.selectedNode.traits.agency) {
+      var senseBtn = ' <button class="insp-toggle' + (this.showSense ? ' active' : '') +
+        '" onclick="Renderer.showSense=!Renderer.showSense;Renderer.updateInspector()">Sense</button>';
+      html += senseBtn;
+    }
+    html += '</div>';
+
+    // Build hierarchy rows: L1 → L2 → L3 → ...
+    html += '<div class="insp-hierarchy">';
+    var g = group;
+    while (g) {
+      var isSelected = (this.selectedNode && World.tileInGroup(
+        this.inspectedTile.y * World.width + this.inspectedTile.x, g.id));
+      html += this._buildLevelRow(g, g.level, g.id === groupId);
+      g = g.parentGroup ? World.groups.get(g.parentGroup) : null;
+    }
+    html += '</div>';
+
+    // Selected entity detail panel
+    if (this.selectedNode && this.selectedNode.alive) {
+      html += this._buildSelectedDetail(this.selectedNode);
+    }
+
+    this.inspectorEl.innerHTML = html;
+  },
+
+  _buildSelectedDetail: function(n) {
     var tmpl = TEMPLATES[n.templateId];
-    var self = this;
-
-    // Header line
-    var containerGroup = World.groups.get(n.container);
-    var containerLabel = n.container;
-    if (containerGroup) {
-      containerLabel = 'L' + containerGroup.level + '#' + n.container + '(' + containerGroup.tileCount + 't)';
-    }
-    var header = '<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
-      ' | count:' + Math.floor(n.count) + ' | container:' + containerLabel;
-    if (n.traits.agency) {
-      var a = n.traits.agency;
-      if (a.lastAction) header += ' | action:' + a.lastAction;
-      if (a.activePlan) header += ' | plan:' + a.activePlan.goal;
-    }
-
-    // Sense toggle button
-    var senseBtn = '<button class="insp-toggle' + (this.showSense ? ' active' : '') +
-      '" onclick="Renderer.showSense=!Renderer.showSense;Renderer.updateInspector()">Sense</button>';
-
-    var html = '<div class="insp-header">' + header + ' ' + senseBtn + '</div>';
+    var html = '<div class="insp-detail">';
+    html += '<div class="insp-detail-header"><b>' + tmpl.symbol + ' ' + n.templateId +
+      '</b> #' + n.id + ' ×' + Math.floor(n.count) + '</div>';
     html += '<div class="insp-body">';
 
-    // Node section — core fields
-    var core = {
-      id: n.id,
-      templateId: n.templateId,
-      category: tmpl.category,
-      count: n.count,
-      alive: n.alive,
-      container: n.container,
-      parent: n.parent,
-      center: n.center,
-      spread: n.spread,
-    };
-    if (n.containedBy) core.containedBy = n.containedBy;
-    if (n.contains && n.contains.length > 0) {
-      var inv = [];
-      for (var c = 0; c < n.contains.length; c++) {
-        var item = World.nodes.get(n.contains[c]);
-        if (item && item.alive) inv.push(item.templateId + '#' + item.id + '(×' + Math.floor(item.count) + ')');
-      }
-      core.contains = inv;
-    }
-    html += this._buildSection('node', core);
-
-    // Position section
+    // Position
     if (n.position) {
       html += this._buildSection('position', n.position);
     }
 
-    // Vitals section
+    // Vitals detail
     if (n.traits.vitals) {
       html += this._buildSection('vitals', n.traits.vitals);
     }
 
-    // Agency section
+    // Agency detail
     if (n.traits.agency) {
       var ag = n.traits.agency;
       var agencyView = {
@@ -501,35 +601,28 @@ var Renderer = {
       html += this._buildSection('agency', agencyView);
     }
 
-    // Diet section
+    // Diet
     if (n.traits.diet) {
       html += this._buildSection('diet', n.traits.diet);
     }
 
-    // Group section
+    // Group trait
     if (n.traits.group) {
-      var gv = {
+      html += this._buildSection('group', {
         maxSize: n.traits.group.maxSize,
         mergeThreshold: n.traits.group.mergeThreshold,
-      };
-      var siblings = World.groupsInContainer(n.container);
-      var sameSpecies = 0;
-      for (var si = 0; si < siblings.length; si++) {
-        if (siblings[si].templateId === n.templateId && siblings[si].alive) sameSpecies++;
-      }
-      if (sameSpecies > 1) gv.herdsHere = sameSpecies;
-      html += this._buildSection('group', gv);
+      });
     }
 
-    // Spatial section
+    // Spatial
     if (n.traits.spatial) {
       html += this._buildSection('spatial', n.traits.spatial);
     }
 
-    // Sense model (filtered world model)
+    // Sense model
     if (this.showSense && n.traits.agency) {
       var sense = Sense.scan(n);
-      var sv = {
+      html += this._buildSection('sense', {
         food: { here: sense.food.here, count: sense.food.count },
         prey: { here: sense.prey.here, count: sense.prey.count },
         threats: { count: sense.threats.count, here: sense.threats.here },
@@ -540,11 +633,10 @@ var Renderer = {
         foodNearby: sense.foodNearby,
         preyNearby: sense.preyNearby,
         waterNearby: sense.waterNearby,
-      };
-      html += this._buildSection('sense (world model)', sv);
+      });
     }
 
-    html += '</div>';
-    this.inspectorEl.innerHTML = html;
+    html += '</div></div>';
+    return html;
   },
 };

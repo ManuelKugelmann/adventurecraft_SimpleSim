@@ -200,6 +200,76 @@ h1 {
   border-color: #6a8aaa;
 }
 
+/* Hierarchy rows */
+#inspector .insp-hierarchy {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+#inspector .insp-level {
+  background: #1e1e36;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  text-align: left;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+#inspector .insp-level-selected {
+  border-color: #6a8aaa;
+}
+
+#inspector .insp-level-header {
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+#inspector .insp-cat {
+  margin-top: 2px;
+  padding-left: 4px;
+  border-left: 2px solid #333;
+}
+
+#inspector .insp-cat-label {
+  color: #8888aa;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+}
+
+#inspector .insp-entity {
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#inspector .insp-entity-sel {
+  background: #2a3a5a;
+  border-radius: 2px;
+  padding: 0 3px;
+}
+
+/* Selected entity detail */
+#inspector .insp-detail {
+  border-top: 1px solid #333;
+  padding-top: 4px;
+  margin-top: 4px;
+}
+
+#inspector .insp-detail-header {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
 #inspector .insp-body {
   display: flex;
   gap: 12px;
