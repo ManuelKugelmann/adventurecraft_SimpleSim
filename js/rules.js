@@ -26,43 +26,43 @@
 // Runs every tick on all living nodes with vitals.
 // All filtering via unified 'when' conditions — no special-case fields.
 
-var ANIMAL_WHEN = [['category', 'in', ['herbivore', 'carnivore', 'omnivore']]];
+var ANIMAL_COND = ['category', 'in', ['herbivore', 'carnivore', 'omnivore']];
 
 var BIO_RULE_DEFS = [
   // --- Animal vital drains ---
   { name: 'hungerDrain',
-    when: ANIMAL_WHEN,
+    when: [ANIMAL_COND],
     effects: [{ type: 'vital', target: 'hunger', op: 'add', amount: CONFIG.HUNGER_RATE }] },
   { name: 'thirstDrain', requires: 'thirst',
-    when: ANIMAL_WHEN,
+    when: [ANIMAL_COND],
     effects: [{ type: 'vital', target: 'thirst', op: 'add', amount: CONFIG.THIRST_RATE }] },
   { name: 'energyDrain',
-    when: ANIMAL_WHEN,
+    when: [ANIMAL_COND],
     effects: [{ type: 'vital', target: 'energy', op: 'sub', amount: CONFIG.ENERGY_DRAIN }] },
 
   // --- Animal passive regen ---
   { name: 'energyRegen',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['hunger', '<', 70], ['energy', '<', 100]],
+    when: [ANIMAL_COND, ['hunger', '<', 70], ['energy', '<', 100]],
     effects: [{ type: 'vital', target: 'energy', op: 'add', amount: 0.1, cap: 100 }] },
   { name: 'healthRegen', requires: 'health',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['hunger', '<', 50], ['thirst', '<', 50]],
+    when: [ANIMAL_COND, ['hunger', '<', 50], ['thirst', '<', 50]],
     effects: [{ type: 'vital', target: 'health', op: 'add', amount: CONFIG.HEAL_RATE, cap: 100 }] },
 
   // --- Animal damage from unmet needs ---
   { name: 'dehydration', requires: 'health',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['thirst', '>=', 80]],
+    when: [ANIMAL_COND, ['thirst', '>=', 80]],
     effects: [{ type: 'vital', target: 'health', op: 'sub', amount: 2 }] },
 
   // --- Animal death ---
   { name: 'starvation',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['hunger', '>=', 90]],
+    when: [ANIMAL_COND, ['hunger', '>=', 90]],
     effects: [{ type: 'kill', rate: CONFIG.STARVE_RATE, min: 1 }] },
   { name: 'exhaustion',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['energy', '<=', 0]],
+    when: [ANIMAL_COND, ['energy', '<=', 0]],
     effects: [{ type: 'kill', count: 1 },
               { type: 'vital', target: 'energy', op: 'set', amount: 0 }] },
   { name: 'healthCollapse', requires: 'health',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']], ['health', '<=', 0]],
+    when: [ANIMAL_COND, ['health', '<=', 0]],
     effects: [{ type: 'kill', rate: 0.1, min: 1 },
               { type: 'vital', target: 'health', op: 'set', amount: 20 }] },
 
@@ -81,12 +81,12 @@ var BIO_RULE_DEFS = [
 
 var REFLEX_RULE_DEFS = [
   { name: 'autoDrink', requires: 'thirst',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']],
+    when: [ANIMAL_COND,
            ['thirst', '>', 40], ['sense.water.adjacent', '==', true]],
     effects: [{ type: 'vital', target: 'thirst', op: 'sub', amount: 15, floor: 0 }] },
 
   { name: 'reproduce',
-    when: [['category', 'in', ['herbivore', 'carnivore', 'omnivore']],
+    when: [ANIMAL_COND,
            ['hunger', '<', 40], ['energy', '>', 30],
            ['health', '>', 50], ['thirst', '<', 50], ['count', '>=', 2]],
     effects: [{ type: 'birth', rate: CONFIG.BIRTH_RATE, min: 1 },
@@ -140,7 +140,7 @@ var Rules = {
   // L2: Involuntary reflexes — needs perception
   reflex: function(node) {
     var v = node.traits.vitals;
-    if (!v || !node.alive) return;
+    if (!v || !node.alive || !node.traits.agency) return;
 
     var sense = Sense.scan(node);
     this._runRuleTable(REFLEX_RULE_DEFS, node, v, sense);
