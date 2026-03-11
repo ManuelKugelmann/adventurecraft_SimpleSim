@@ -8,6 +8,8 @@ var Renderer = {
   inspectorEl: null,
   selectedNode: null,
   showSense: false,
+  expandedLevels: {},    // groupId → true if expanded
+  highlightedGroupId: null, // group whose tiles are highlighted on map
   // Pre-computed: border info per tile (set once after hierarchy gen)
   borderInfo: null,  // flat array of {top,right,bottom,left} border flags + level + color
 
@@ -288,9 +290,12 @@ var Renderer = {
       span.style.opacity = 1;
     }
 
+    // Apply group highlight overlay
+    this._applyHighlight();
+
     this.tickEl.textContent = World.tick;
     this.updateStats();
-    if (this.selectedNode) this.updateInspector();
+    if (this.inspectedGroupId || this.inspectedGroupId === 0) this.updateInspector();
   },
 
   tintColor: function(baseCss, tintCss, amount) {
@@ -407,6 +412,37 @@ var Renderer = {
     return '<div class="insp-section">' + html + '</div>';
   },
 
+  // --- Highlight tiles on map for a group ---
+
+  _applyHighlight: function() {
+    var gId = this.highlightedGroupId;
+    var w = World.width, h = World.height;
+    if (!gId && gId !== 0) {
+      // Clear any lingering dimming
+      for (var i = 0; i < w * h; i++) {
+        this.cells[i].style.opacity = 1;
+      }
+      return;
+    }
+    for (var i = 0; i < w * h; i++) {
+      this.cells[i].style.opacity = World.tileInGroup(i, gId) ? 1 : 0.25;
+    }
+  },
+
+  setHighlight: function(groupId) {
+    this.highlightedGroupId = groupId;
+    this._applyHighlight();
+  },
+
+  toggleExpand: function(groupId) {
+    if (this.expandedLevels[groupId]) {
+      delete this.expandedLevels[groupId];
+    } else {
+      this.expandedLevels[groupId] = true;
+    }
+    this.updateInspector();
+  },
+
   // Summarize entities in a container, grouped by category
   _summarizeEntities: function(entities) {
     var byCategory = {};
@@ -419,6 +455,27 @@ var Renderer = {
       byCategory[cat].push(e);
     }
     return byCategory;
+  },
+
+  // Compact species summary: ◆×10 ♣×20 ▲×4
+  _speciesSummary: function(entities) {
+    var byTemplate = {};
+    for (var i = 0; i < entities.length; i++) {
+      var e = entities[i];
+      if (!e.alive) continue;
+      var tid = e.templateId;
+      if (!byTemplate[tid]) byTemplate[tid] = { count: 0, groups: 0 };
+      byTemplate[tid].count += Math.floor(e.count);
+      byTemplate[tid].groups++;
+    }
+    var parts = [];
+    var tids = Object.keys(byTemplate);
+    for (var i = 0; i < tids.length; i++) {
+      var tmpl = TEMPLATES[tids[i]];
+      var info = byTemplate[tids[i]];
+      parts.push('<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span>×' + info.count);
+    }
+    return parts.length > 0 ? parts.join(' ') : '<span class="insp-null">empty</span>';
   },
 
   // Build a compact entity line: symbol count (per-individual vitals)
@@ -455,60 +512,69 @@ var Renderer = {
     return line;
   },
 
-  // Build a hierarchy level row: group info + all occupant entities
+  // Build a hierarchy level row: shorthand by default, foldable to full detail
   _buildLevelRow: function(group, level, isSelected) {
     var entities = World.groupsInContainerDeep(group.id);
-    var byCategory = this._summarizeEntities(entities);
+    var expanded = this.expandedLevels[group.id];
     var linkCount = group.links ? Object.keys(group.links).length : 0;
+    var isHighlighted = this.highlightedGroupId === group.id;
 
-    var cls = 'insp-level' + (isSelected ? ' insp-level-selected' : '');
-    var html = '<div class="' + cls + '">';
+    var cls = 'insp-level' +
+      (isSelected ? ' insp-level-selected' : '') +
+      (isHighlighted ? ' insp-level-hl' : '');
+    var html = '<div class="' + cls + '"' +
+      ' onmouseenter="Renderer.setHighlight(' + group.id + ')"' +
+      ' onmouseleave="Renderer.setHighlight(null)">';
 
-    // Level header
-    html += '<div class="insp-level-header">';
+    // Shorthand header (always visible) — clickable to toggle expand
+    var arrow = expanded ? '&#9660;' : '&#9654;';
+    html += '<div class="insp-level-header" onclick="Renderer.toggleExpand(' + group.id + ')">';
+    html += '<span class="insp-arrow">' + arrow + '</span> ';
     html += '<span class="insp-label">L' + level + '</span> ';
     html += '<b>#' + group.id + '</b> ' + (group.type || '?') +
       ' <span class="insp-val">' + group.tileCount + 't</span>' +
-      ' fert:<span class="insp-val">' + group.fertility.toFixed(2) + '</span>' +
-      ' links:<span class="insp-val">' + linkCount + '</span>';
+      ' lnk:<span class="insp-val">' + linkCount + '</span>';
     if (group.children) {
-      html += ' children:<span class="insp-val">' + group.children.length + '</span>';
+      html += ' ch:<span class="insp-val">' + group.children.length + '</span>';
     }
+    // Inline species summary
+    html += ' | ' + this._speciesSummary(entities);
     html += '</div>';
 
-    // Entity categories
-    var catOrder = ['herbivore', 'omnivore', 'carnivore', 'plant', 'seed', 'item'];
-    var catLabels = {
-      herbivore: 'Herbivores', omnivore: 'Omnivores', carnivore: 'Carnivores',
-      plant: 'Plants', seed: 'Seeds', item: 'Items'
-    };
+    // Expanded detail: full entity list by category
+    if (expanded) {
+      var byCategory = this._summarizeEntities(entities);
+      var catOrder = ['herbivore', 'omnivore', 'carnivore', 'plant', 'seed', 'item'];
+      var catLabels = {
+        herbivore: 'Herbivores', omnivore: 'Omnivores', carnivore: 'Carnivores',
+        plant: 'Plants', seed: 'Seeds', item: 'Items'
+      };
 
-    var hasEntities = false;
-    for (var ci = 0; ci < catOrder.length; ci++) {
-      var cat = catOrder[ci];
-      var list = byCategory[cat];
-      if (!list || list.length === 0) continue;
-      hasEntities = true;
+      var hasEntities = false;
+      for (var ci = 0; ci < catOrder.length; ci++) {
+        var cat = catOrder[ci];
+        var list = byCategory[cat];
+        if (!list || list.length === 0) continue;
+        hasEntities = true;
 
-      // Aggregate count for category
-      var totalCount = 0;
-      for (var ei = 0; ei < list.length; ei++) totalCount += Math.floor(list[ei].count);
+        var totalCount = 0;
+        for (var ei = 0; ei < list.length; ei++) totalCount += Math.floor(list[ei].count);
 
-      html += '<div class="insp-cat">';
-      html += '<span class="insp-cat-label">' + catLabels[cat] + ' (' + list.length +
-        ' grp, ×' + totalCount + ')</span>';
+        html += '<div class="insp-cat">';
+        html += '<span class="insp-cat-label">' + catLabels[cat] + ' (' + list.length +
+          ' grp, ×' + totalCount + ')</span>';
 
-      // Show each entity group
-      for (var ei = 0; ei < list.length; ei++) {
-        var sel = (this.selectedNode && list[ei].id === this.selectedNode.id);
-        html += '<div class="insp-entity' + (sel ? ' insp-entity-sel' : '') + '">' +
-          this._entityLine(list[ei]) + '</div>';
+        for (var ei = 0; ei < list.length; ei++) {
+          var sel = (this.selectedNode && list[ei].id === this.selectedNode.id);
+          html += '<div class="insp-entity' + (sel ? ' insp-entity-sel' : '') + '">' +
+            this._entityLine(list[ei]) + '</div>';
+        }
+        html += '</div>';
       }
-      html += '</div>';
-    }
 
-    if (!hasEntities) {
-      html += '<div class="insp-cat"><span class="insp-null">empty</span></div>';
+      if (!hasEntities) {
+        html += '<div class="insp-cat"><span class="insp-null">empty</span></div>';
+      }
     }
 
     html += '</div>';

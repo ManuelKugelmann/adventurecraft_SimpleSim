@@ -226,9 +226,27 @@ h1 {
   border-color: #6a8aaa;
 }
 
+#inspector .insp-level-hl {
+  background: #252548;
+  border-color: #7a9abb;
+}
+
 #inspector .insp-level-header {
-  margin-bottom: 3px;
+  cursor: pointer;
+  margin-bottom: 1px;
   line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#inspector .insp-level-header:hover {
+  color: #e0e0ff;
+}
+
+#inspector .insp-arrow {
+  font-size: 9px;
+  color: #666;
 }
 
 #inspector .insp-cat {
