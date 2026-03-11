@@ -340,14 +340,14 @@ var Effects = {
     var neighbors = sense.neighbors;
     if (neighbors.length === 0) return null;
 
-    var threatGroup = threats[0].container;
+    var tGroup = World.groups.get(threats[0].container);
+    if (!tGroup) return neighbors[0];
+
     var best = null;
     var bestScore = -Infinity;
     for (var i = 0; i < neighbors.length; i++) {
       var nGroup = World.groups.get(neighbors[i]);
       if (!nGroup) continue;
-      var tGroup = World.groups.get(threatGroup);
-      if (!tGroup) { best = neighbors[i]; break; }
       var dist = Math.abs(nGroup.center.x - tGroup.center.x) +
                  Math.abs(nGroup.center.y - tGroup.center.y);
       if (dist > bestScore) {

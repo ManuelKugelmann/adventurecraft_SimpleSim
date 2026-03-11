@@ -81,7 +81,6 @@ var Planner = {
     }
 
     agency.activePlan = { goal: processName, steps: def.steps, target: target, stepIdx: 0 };
-    agency.activePlanStep = 0;
     this.executeStep(node);
   },
 

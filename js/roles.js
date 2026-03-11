@@ -96,6 +96,13 @@ var Roles = {
     }
   },
 
+  _findRule: function(roleDef, name) {
+    for (var i = 0; i < roleDef.length; i++) {
+      if (roleDef[i].name === name) return roleDef[i];
+    }
+    return null;
+  },
+
   evaluateCompound: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
@@ -196,14 +203,8 @@ var Roles = {
     }
 
     if (keys.length <= 1 || node.count <= 1) {
-      if (majorAction) {
-        for (var i = 0; i < roleDef.length; i++) {
-          if (roleDef[i].name === majorAction) {
-            this._execRule(roleDef[i], node, sense);
-            break;
-          }
-        }
-      }
+      var rule = majorAction ? this._findRule(roleDef, majorAction) : null;
+      if (rule) this._execRule(rule, node, sense);
       agency.actionSpread = actionTally;
       return;
     }
@@ -231,24 +232,14 @@ var Roles = {
       if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
       World.byGroup.get(node.container).add(newNode.id);
 
-      for (var j = 0; j < roleDef.length; j++) {
-        if (roleDef[j].name === keys[k]) {
-          this._execRule(roleDef[j], newNode, sense);
-          break;
-        }
-      }
+      var splitRule = this._findRule(roleDef, keys[k]);
+      if (splitRule) this._execRule(splitRule, newNode, sense);
     }
 
     node.count = majorCount;
     computeSpread(node);
-    if (majorAction) {
-      for (var i = 0; i < roleDef.length; i++) {
-        if (roleDef[i].name === majorAction) {
-          this._execRule(roleDef[i], node, sense);
-          break;
-        }
-      }
-    }
+    var majorRule = majorAction ? this._findRule(roleDef, majorAction) : null;
+    if (majorRule) this._execRule(majorRule, node, sense);
     agency.actionSpread = actionTally;
   },
 };

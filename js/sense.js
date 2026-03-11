@@ -76,6 +76,7 @@ var Sense = {
   },
 
   _scanEntities: function(node, containerId, diet, model, isHere) {
+    if (!diet) return;
     var entities = World.groupsInContainer(containerId);
     var myCategory = TEMPLATES[node.templateId].category;
     var myStrength = TEMPLATES[node.templateId].strength;
@@ -85,8 +86,6 @@ var Sense = {
       if (other.id === node.id || !other.alive || other.count <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
       var cat = otherTmpl.category;
-
-      if (!diet) continue;
 
       // Food (plants/seeds I can eat)
       if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
