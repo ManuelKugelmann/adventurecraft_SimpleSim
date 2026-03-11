@@ -1,210 +1,154 @@
-// planner.js — Reusable processes (multi-step action sequences)
-// Multi-step action sequences, movement between container groups
+// planner.js — Multi-step plan definitions (data) + planner engine (code)
+// Plan definitions are pure data: step sequences with typed instructions.
+// Planner engine interprets step types generically via Effects engine.
+// All effects (movement, costs) are declared inline as data.
+
+// === PLAN DEFINITIONS (DATA) ===
+// Each plan: { initTarget?, fallback?, steps: [...] }
+// Step types:
+//   startmove — initiate movement: { type:'startmove', destination, pickup, cost:[], label, noTarget? }
+//   wait      — block until movement completes: { type:'wait' }
+//   action    — execute named action: { type:'action', name, valid? }
+// cost: array of effect data applied on successful move
+// Future .acf:
+//   plan findFood [survival, universal] {
+//     params { target = SpatialRef }
+//     method walk {
+//       needs { self.knows(route_to($target, walking)) }
+//       step: do Move.Direct { destination = $target }
+//       action: do graze { valid: sense.food.here != null }
+//     }
+//   }
+
+var PLAN_DEFS = {
+  flee: {
+    steps: [
+      { type: 'startmove', destination: 'away_threats', pickup: true, label: 'flee',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
+        noTarget: 'done' },
+      { type: 'wait' },
+      { type: 'startmove', destination: 'away_threats', pickup: true, label: 'flee',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
+        noTarget: 'done' },
+      { type: 'wait' },
+    ],
+  },
+  findFood: {
+    initTarget: 'foodNearby',
+    fallback: 'wander',
+    steps: [
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-food',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
+      { type: 'wait' },
+      { type: 'action', name: 'graze', valid: [['sense.food.here', '!=', null]] },
+    ],
+  },
+  findWater: {
+    initTarget: 'waterNearby',
+    fallback: 'wander',
+    steps: [
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-water',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
+      { type: 'wait' },
+    ],
+  },
+  huntPrey: {
+    initTarget: 'preyNearby',
+    fallback: 'wander',
+    steps: [
+      { type: 'startmove', destination: '$target', pickup: true, label: 'seek-prey',
+        cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
+      { type: 'wait' },
+      { type: 'action', name: 'hunt', valid: [['sense.prey.here', '!=', null]] },
+    ],
+  },
+};
+
+// === PLANNER ENGINE (CODE) ===
 
 var Planner = {
-  // Start a process for a node
-  start: function(node, processName) {
+  start: function(node, planName) {
     var agency = node.traits.agency;
-    var process = PROCESSES[processName];
-    if (!process) return;
+    var def = PLAN_DEFS[planName];
+    if (!def) return;
 
-    var plan = process.init(node);
-    if (plan && plan.steps && plan.steps.length > 0) {
-      agency.activePlan = { goal: processName, steps: plan.steps };
-      agency.activePlanStep = 0;
-      // Execute first step immediately
-      this.executeStep(node);
+    // Resolve init target from sense model
+    var target = null;
+    if (def.initTarget) {
+      var sense = Sense.scan(node);
+      target = sense[def.initTarget];
+      if (!target) {
+        if (def.fallback) Effects.executeAction(def.fallback, node, sense);
+        return;
+      }
     }
+
+    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0 };
+    this.executeStep(node);
   },
 
-  // Execute current step of active process
   executeStep: function(node) {
     var agency = node.traits.agency;
     var plan = agency.activePlan;
     if (!plan) return;
 
-    var stepIdx = agency.activePlanStep;
-    if (stepIdx >= plan.steps.length) {
+    if (plan.stepIdx >= plan.steps.length) {
       agency.activePlan = null;
-      agency.activePlanStep = 0;
       return;
     }
 
-    var step = plan.steps[stepIdx];
+    var step = plan.steps[plan.stepIdx];
+    var sense = Sense.scan(node);
 
-    // Validate precondition (if the world changed, abort)
-    if (step.valid && !step.valid(node)) {
-      agency.activePlan = null;
-      agency.activePlanStep = 0;
-      return;
+    switch (step.type) {
+
+      case 'startmove':
+        var dest = step.destination === '$target' ? plan.target : step.destination;
+        if (dest === 'away_threats') {
+          dest = Effects._awayFromThreats(node, sense);
+          if (!dest) {
+            if (step.noTarget === 'done') { agency.activePlan = null; }
+            else { this._advance(plan, agency); }
+            return;
+          }
+        }
+        if (!dest) { agency.activePlan = null; return; }
+
+        var result = Effects._move({ destination: dest, pickup: step.pickup }, node, sense);
+        if (result.status === 'ok') {
+          if (step.cost) Effects.applyEffects(step.cost, node, sense);
+          node.traits.agency.lastAction = step.label;
+          this._advance(plan, agency);
+        } else {
+          if (result.status === 'blocked' || result.status === 'slowed') {
+            if (step.cost) Effects.applyEffects(step.cost, node, sense);
+            node.traits.agency.lastAction = result.label;
+          }
+          agency.activePlan = null;
+        }
+        break;
+
+      case 'wait':
+        if (World.isMoving(node)) return;
+        this._advance(plan, agency);
+        if (agency.activePlan) this.executeStep(node);
+        break;
+
+      case 'action':
+        if (step.valid && !evalRuleConditions(step.valid, node.traits.vitals, sense, node.count, node)) {
+          agency.activePlan = null;
+          return;
+        }
+        Effects.executeAction(step.name, node, sense);
+        this._advance(plan, agency);
+        break;
     }
+  },
 
-    var result = step.exec(node);
-
-    if (result === 'done' || result === true) {
-      agency.activePlanStep++;
-      if (agency.activePlanStep >= plan.steps.length) {
-        agency.activePlan = null;
-        agency.activePlanStep = 0;
-      }
-    } else if (result === 'fail') {
+  _advance: function(plan, agency) {
+    plan.stepIdx++;
+    if (plan.stepIdx >= plan.steps.length) {
       agency.activePlan = null;
-      agency.activePlanStep = 0;
     }
-    // result === 'continue' means stay on this step next tick
   },
 };
-
-// --- Reusable process definitions ---
-
-var PROCESSES = {
-  flee: {
-    init: function(node) {
-      return {
-        steps: [
-          { exec: function(n) { return fleeContainer(n); } },
-          { exec: function(n) { return fleeContainer(n); } },
-        ]
-      };
-    },
-  },
-
-  findFood: {
-    init: function(node) {
-      // Scan neighbor groups for plant food
-      var target = findFoodNearby(node);
-      if (!target) {
-        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
-      }
-      return {
-        steps: [
-          { exec: function(n) {
-            if (World.isMoving(n)) return 'continue';
-            if (stoneMoveBlocked(n)) return 'fail';
-            tryPickup(n);
-            World.startMove(n, target);
-            n.traits.vitals.energy -= 1;
-            n.traits.agency.lastAction = 'seek-food';
-            return 'continue';
-          }},
-          { exec: function(n) {
-            if (World.isMoving(n)) return 'continue';
-            return 'done';
-          }},
-          { valid: function(n) { return foodInContainer(n) !== null; },
-            exec: function(n) { graze(n); return 'done'; }
-          },
-        ]
-      };
-    },
-  },
-
-  huntPrey: {
-    init: function(node) {
-      // Scan neighbor groups for prey
-      var target = findPreyNearby(node);
-      if (!target) {
-        return { steps: [{ exec: function(n) { wander(n); return 'done'; } }] };
-      }
-      return {
-        steps: [
-          { exec: function(n) {
-            if (World.isMoving(n)) return 'continue';
-            if (stoneMoveBlocked(n)) return 'fail';
-            tryPickup(n);
-            World.startMove(n, target);
-            n.traits.vitals.energy -= 1;
-            n.traits.agency.lastAction = 'seek-prey';
-            return 'continue';
-          }},
-          { exec: function(n) {
-            if (World.isMoving(n)) return 'continue';
-            return 'done';
-          }},
-          { valid: function(n) { return preyInContainer(n) !== null; },
-            exec: function(n) { hunt(n); return 'done'; }
-          },
-        ]
-      };
-    },
-  },
-};
-
-// --- Process helpers ---
-
-function fleeContainer(node) {
-  var threats = threatsInContainer(node);
-  if (threats.length === 0) threats = biggerThreatsInContainer(node);
-  if (threats.length === 0) return 'done';
-
-  // Pick a walkable neighbor away from threats
-  var neighbors = World.walkableNeighbors(node.container);
-  if (neighbors.length === 0) return 'fail';
-
-  // Score each neighbor: prefer groups farther from threats
-  var threatGroup = threats[0].container;
-  var best = null;
-  var bestScore = -Infinity;
-  for (var i = 0; i < neighbors.length; i++) {
-    var nGroup = World.groups.get(neighbors[i]);
-    if (!nGroup) continue;
-    var tGroup = World.groups.get(threatGroup);
-    if (!tGroup) { best = neighbors[i]; break; }
-    // Distance from threat (Manhattan between group centers)
-    var dist = Math.abs(nGroup.center.x - tGroup.center.x) +
-               Math.abs(nGroup.center.y - tGroup.center.y);
-    if (dist > bestScore) {
-      bestScore = dist;
-      best = neighbors[i];
-    }
-  }
-
-  if (best !== null) {
-    if (stoneMoveBlocked(node)) return 'done';
-    tryPickup(node);
-    World.startMove(node, best);
-    node.traits.vitals.energy -= 1;
-    node.traits.agency.lastAction = 'flee';
-  }
-  return 'done';
-}
-
-// Find a neighbor group containing plant food
-function findFoodNearby(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.container);
-  for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInContainer(neighbors[i]);
-    for (var j = 0; j < groups.length; j++) {
-      var other = groups[j];
-      if (!other.alive || other.count <= 0) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      var cat = otherTmpl.category;
-      if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
-        return neighbors[i];
-      }
-    }
-  }
-  return null;
-}
-
-// Find a neighbor group containing prey
-function findPreyNearby(node) {
-  var diet = node.traits.diet;
-  if (!diet) return null;
-  var neighbors = World.walkableNeighbors(node.container);
-  for (var i = 0; i < neighbors.length; i++) {
-    var groups = World.groupsInContainer(neighbors[i]);
-    for (var j = 0; j < groups.length; j++) {
-      var other = groups[j];
-      if (!other.alive || other.count <= 0) continue;
-      var otherTmpl = TEMPLATES[other.templateId];
-      var cat = otherTmpl.category;
-      if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
-        return neighbors[i];
-      }
-    }
-  }
-  return null;
-}

@@ -25,8 +25,8 @@ jobs:
               `## Live Preview`,
               `| Version | Link |`,
               `|---------|------|`,
-              `| **Stable** (main) | [${baseUrl}/stable/](${baseUrl}/stable/) |`,
-              `| **Preview** (\`${branch}\` @ \`${sha}\`) | [${baseUrl}/preview/](${baseUrl}/preview/) |`,
+              `| **Stable** (main) | [${baseUrl}/stable/?v=${sha}](${baseUrl}/stable/?v=${sha}) |`,
+              `| **Preview** (\`${branch}\` @ \`${sha}\`) | [${baseUrl}/preview/?v=${sha}](${baseUrl}/preview/?v=${sha}) |`,
               ``,
               `> Both versions deployed to GitHub Pages. Preview updates on each push.`,
             ].join('\n');

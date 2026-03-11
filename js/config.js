@@ -32,7 +32,9 @@ var CONFIG = {
 
   // Biology (scale-agnostic: same rate for count=1 or count=50)
   HUNGER_RATE: 0.4,
+  THIRST_RATE: 0.25,
   ENERGY_DRAIN: 0.15,
+  HEAL_RATE: 0.3,          // health regen per tick when well-fed and hydrated
   PLANT_GROW_RATE: 0.8,
   PLANT_MAX_DENSITY: 5,    // max count per tile in group
   SEED_DROP_RATE: 0.02,    // chance per tick that a plant drops seeds/grains
@@ -64,6 +66,9 @@ var CONFIG = {
 
   // Initial stone groups
   INITIAL_STONE: 3,
+
+  // Role priority threshold: rules at or above this act as urgent (whole group in unison)
+  URGENT_PRIORITY: 80,
 };
 
 var TILE_TYPES = {
@@ -168,10 +173,10 @@ var TEMPLATES = {
     defaultCount: 10,
     strength: 1,
     traits: {
-      vitals: { hunger: 20, energy: 80 },
+      vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 3 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'grazer', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -183,10 +188,10 @@ var TEMPLATES = {
     defaultCount: 8,
     strength: 2,
     traits: {
-      vitals: { hunger: 20, energy: 80 },
+      vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 2 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'grazer', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'grazer', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -199,10 +204,10 @@ var TEMPLATES = {
     defaultCount: 6,
     strength: 2,
     traits: {
-      vitals: { hunger: 20, energy: 80 },
+      vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 1 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
-      agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'forager', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -214,10 +219,10 @@ var TEMPLATES = {
     defaultCount: 3,
     strength: 6,
     traits: {
-      vitals: { hunger: 20, energy: 80 },
+      vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 1 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'forager', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'forager', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 20 },
     },
   },
@@ -230,10 +235,10 @@ var TEMPLATES = {
     defaultCount: 5,
     strength: 3,
     traits: {
-      vitals: { hunger: 25, energy: 80 },
+      vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
-      agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'hunter', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 30 },
     },
   },
@@ -245,10 +250,10 @@ var TEMPLATES = {
     defaultCount: 4,
     strength: 5,
     traits: {
-      vitals: { hunger: 25, energy: 80 },
+      vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 2 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'hunter', activePlan: null, activePlanStep: 0, lastAction: null },
+      agency: { activeRole: 'hunter', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 25 },
     },
   },
