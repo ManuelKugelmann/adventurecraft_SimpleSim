@@ -60,16 +60,23 @@ var Simulation = {
     World.tick++;
 
     // === L1: Biology — passive drains, damage, death, plant growth ===
+    // READ: snapshot captures pre-layer state. WRITE: effects mutate live nodes.
+    Snapshot.capture();
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       Rules.biology(node);
     });
+    Snapshot.clear();
+    Snapshot.clampCounts();
 
     // === L2: Reflex — involuntary responses (auto-drink, reproduction) ===
+    Snapshot.capture();
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       Rules.reflex(node);
     });
+    Snapshot.clear();
+    Snapshot.clampCounts();
 
     // === Merge colocated same-species groups with similar state ===
     Groups.mergePass();
@@ -83,6 +90,8 @@ var Simulation = {
     World.advancePositions();
 
     // === L3/L4: Roles + Plans — voluntary actions (L0 base costs applied per action) ===
+    // All actors read from the same snapshot (parallel execution model).
+    Snapshot.capture();
     var actors = [];
     World.nodes.forEach(function(node) {
       if (node.alive && node.traits.agency) actors.push(node);
@@ -99,6 +108,8 @@ var Simulation = {
         Roles.evaluate(actors[i]);
       }
     }
+    Snapshot.clear();
+    Snapshot.clampCounts();
 
     // === Cleanup: remove dead groups ===
     World.removeDeadNodes();

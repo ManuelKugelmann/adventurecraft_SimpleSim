@@ -4,55 +4,57 @@
 // No imperative action code — all actions defined in ACTION_DEFS (rules.js).
 
 // === ROLE DEFINITIONS (DATA) ===
-// Each entry: { name, urgent?, when (conditions), action/plan }
+// Each entry: { name, priority, when (conditions), action/plan }
 // Conditions: [field, op, value] — evaluated by evalRuleConditions()
-// Priority: first match wins. Urgent: whole group acts in unison.
+// Priority: 0-95 integer. Higher = more involuntary. >= URGENT_PRIORITY = whole group acts.
+// Matched rules sorted by priority desc; first match with highest priority wins.
 // Future .acf:
-//   ROLE grazer
-//     RULE flee      URGENT  WHEN sense.threats.count > 0         PLAN flee
-//     RULE graze             WHEN hunger > 35 AND sense.food.here != null  ACTION graze
+//   role grazer [herbivore, L3] {
+//     flee:      when sense.threats.count > 0, do flee, priority = 90
+//     graze:     when hunger > 35 AND sense.food.here != null, do graze, priority = 40
+//   }
 
 var ROLE_DEFS = {
   grazer: [
-    { name: 'flee',      urgent: true,
+    { name: 'flee',      priority: 90,
       when: [['sense.threats.count', '>', 0]],                          plan: 'flee' },
-    { name: 'seekWater',
+    { name: 'seekWater', priority: 60,
       when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'graze',
+    { name: 'graze',     priority: 40,
       when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',
+    { name: 'seekFood',  priority: 35,
       when: [['hunger', '>', 55]],                                     plan: 'findFood' },
-    { name: 'rest',
+    { name: 'rest',      priority: 20,
       when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',                                                  action: 'wander' },
+    { name: 'wander',    priority: 0,                                  action: 'wander' },
   ],
   hunter: [
-    { name: 'flee',      urgent: true,
+    { name: 'flee',      priority: 90,
       when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater',
+    { name: 'seekWater', priority: 60,
       when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',
+    { name: 'hunt',      priority: 45,
       when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'seekPrey',
+    { name: 'seekPrey',  priority: 35,
       when: [['hunger', '>', 45]],                                     plan: 'huntPrey' },
-    { name: 'rest',
+    { name: 'rest',      priority: 20,
       when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',                                                  action: 'wander' },
+    { name: 'wander',    priority: 0,                                  action: 'wander' },
   ],
   forager: [
-    { name: 'flee',      urgent: true,
+    { name: 'flee',      priority: 90,
       when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater',
+    { name: 'seekWater', priority: 60,
       when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',
+    { name: 'hunt',      priority: 45,
       when: [['hunger', '>', 50], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'graze',
+    { name: 'graze',     priority: 40,
       when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',
+    { name: 'seekFood',  priority: 35,
       when: [['hunger', '>', 50]],                                     plan: 'findFood' },
-    { name: 'rest',
+    { name: 'rest',      priority: 20,
       when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',                                                  action: 'wander' },
+    { name: 'wander',    priority: 0,                                  action: 'wander' },
   ],
 };
 
@@ -85,6 +87,10 @@ var Roles = {
         matches.push(rule);
       }
     }
+    // Sort by priority descending (highest = most involuntary, evaluated first)
+    matches.sort(function(a, b) {
+      return (b.priority || 0) - (a.priority || 0);
+    });
     return matches;
   },
 
@@ -119,7 +125,7 @@ var Roles = {
     var primary = matches[0];
     var secondary = matches.length > 1 ? matches[1] : null;
 
-    if (primary.urgent) {
+    if ((primary.priority || 0) >= CONFIG.URGENT_PRIORITY) {
       this._execRule(primary, node, sense);
       agency.actionSpread = {};
       agency.actionSpread[primary.name] = node.count;
@@ -143,7 +149,7 @@ var Roles = {
       var hasUrgent = false;
       var hasNonUrgent = 0;
       for (var i = 0; i < matches.length; i++) {
-        if (matches[i].urgent) hasUrgent = true;
+        if ((matches[i].priority || 0) >= CONFIG.URGENT_PRIORITY) hasUrgent = true;
         else hasNonUrgent++;
       }
       if (hasUrgent && hasNonUrgent >= 2) return true;

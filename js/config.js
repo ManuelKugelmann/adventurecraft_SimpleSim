@@ -66,6 +66,9 @@ var CONFIG = {
 
   // Initial stone groups
   INITIAL_STONE: 3,
+
+  // Role priority threshold: rules at or above this act as urgent (whole group in unison)
+  URGENT_PRIORITY: 80,
 };
 
 var TILE_TYPES = {

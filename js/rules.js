@@ -1,8 +1,14 @@
 // rules.js — Unified rule format + effects engine
 // ALL simulation behavior is described as rules. The engine executes rules.
-// One format: { name, when?, requires?, effects: [{type:...}] }
+// One format: { name, when?, requires?, prob?, effects: [{type:...}] }
 // One dispatcher: Effects.apply() handles every effect type.
 // One condition system: [field, op, value] tuples evaluated by evalRuleConditions().
+//
+// Rule fields:
+//   name     — rule identifier
+//   when     — array of [field, op, value] condition tuples (all must pass)
+//   requires — vital field that must exist on this node (skip rule if absent)
+//   prob     — probabilistic trigger 0..1 (checked after conditions pass)
 //
 // Effect types (complete set):
 //   vital   — change a vital:     { type:'vital', target, op:'add'|'sub'|'set', amount, cap?, floor? }
@@ -12,15 +18,19 @@
 //   combat  — hunt from source:   { type:'combat', source, vital, killRate, perKill, lossRate, damageBase }
 //   move    — start movement:     { type:'move', toward, pickup?, antiCircle? }
 //   grow    — plant growth:       { type:'grow', rate, maxPerTile }
-//   spawn   — create item node:   { type:'spawn', chance, countRate, templateMap, defaultTemplate }
+//   spawn   — create item node:   { type:'spawn', countRate, templateMap, defaultTemplate }
 //
 // Condition fields: vitals (hunger, thirst, energy, health), count, category, templateId, sense.*
 // Operators: >, <, >=, <=, ==, !=, in
 //
+// Read/write separation: when Snapshot is active, conditions and sense reads use
+// snapshot state; effects write to live nodes. Post-layer clamp handles over-decrement.
+//
 // Future .acf:
-//   RULE hungerDrain  WHEN category IN [herbivore,carnivore,omnivore]  EFFECT vital hunger += 0.4
-//   RULE plantGrowth  WHEN category == plant                          EFFECT grow RATE 0.8 MAX_PER_TILE 5
-//   ACTION graze  EFFECT consume food VITAL hunger RATE 0.3 PER_UNIT 0.8  EFFECT vital energy -= 0.5
+//   rule hungerDrain [biology, L1] {
+//     drain: when entity.category in [herbivore,carnivore,omnivore],
+//            rate = 0.4, effect: entity.hunger += rate * dt
+//   }
 
 // === L1: BIOLOGY RULE DEFINITIONS — passive world sim (DATA) ===
 // Runs every tick on all living nodes with vitals.
@@ -72,7 +82,8 @@ var BIO_RULE_DEFS = [
     effects: [{ type: 'grow', rate: CONFIG.PLANT_GROW_RATE, maxPerTile: CONFIG.PLANT_MAX_DENSITY }] },
   { name: 'seedDrop',
     when: [['category', '==', 'plant'], ['count', '>', 10]],
-    effects: [{ type: 'spawn', chance: CONFIG.SEED_DROP_RATE, countRate: 0.05,
+    prob: CONFIG.SEED_DROP_RATE,
+    effects: [{ type: 'spawn', countRate: 0.05,
                 templateMap: { grass: 'grains' }, defaultTemplate: 'seeds' }] },
 ];
 
@@ -150,12 +161,13 @@ var Rules = {
 
   // --- Shared engine internals ---
 
-  // Evaluate rules: check requires, conditions (unified), then apply effects
+  // Evaluate rules: check requires, conditions (unified), prob, then apply effects
   _runRuleTable: function(table, node, v, sense) {
     for (var i = 0; i < table.length; i++) {
       var rule = table[i];
       if (rule.requires && v[rule.requires] === undefined) continue;
       if (rule.when && !evalRuleConditions(rule.when, v, sense, node.count, node)) continue;
+      if (rule.prob !== undefined && Math.random() >= rule.prob) continue;
       Effects.applyEffects(rule.effects, node, sense);
     }
   },
@@ -236,10 +248,12 @@ var Effects = {
   _consume: function(effect, node, sense) {
     var source = sense[effect.source].here;
     if (!source) return null;
-    var eaten = Math.min(source.count, node.count * effect.rate);
+    // Read source count from snapshot (parallel execution: all consumers see same supply)
+    var sourceCount = Snapshot.active() ? Snapshot.count(source.id) : source.count;
+    var eaten = Math.min(sourceCount, node.count * effect.rate);
     eaten = Math.max(1, Math.round(eaten));
+    // Write to live node (may go negative; post-layer clamp handles it)
     source.count -= eaten;
-    if (source.count <= 0) source.alive = false;
     node.traits.vitals[effect.vital] -= eaten * effect.perUnit / Math.max(1, node.count);
     node.traits.vitals[effect.vital] = Math.max(0, node.traits.vitals[effect.vital]);
     return null;
@@ -247,19 +261,22 @@ var Effects = {
 
   _combat: function(effect, node, sense) {
     var prey = sense[effect.source].here;
-    if (!prey || prey.count <= 0) return { label: 'hunt-miss' };
+    if (!prey) return { label: 'hunt-miss' };
+    // Read prey count from snapshot (parallel: all hunters see same prey count)
+    var preyCount = Snapshot.active() ? Snapshot.count(prey.id) : prey.count;
+    if (preyCount <= 0) return { label: 'hunt-miss' };
 
     var myStrength = node.count * TEMPLATES[node.templateId].strength;
-    var preyStrength = prey.count * TEMPLATES[prey.templateId].strength;
+    var preyStrength = preyCount * TEMPLATES[prey.templateId].strength;
     var ratio = myStrength / Math.max(preyStrength, 1);
 
     var expectedKills = node.count * effect.killRate * ratio;
     var variance = expectedKills * 0.2;
     var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
-    killed = Math.max(0, Math.min(killed, prey.count));
+    killed = Math.max(0, Math.min(killed, preyCount));
 
+    // Write to live node (may go negative; post-layer clamp handles it)
     prey.count -= killed;
-    if (prey.count <= 0) prey.alive = false;
 
     node.traits.vitals[effect.vital] -= killed * effect.perKill / Math.max(1, node.count);
     node.traits.vitals[effect.vital] = Math.max(0, node.traits.vitals[effect.vital]);
@@ -304,7 +321,7 @@ var Effects = {
   },
 
   _spawn: function(effect, node) {
-    if (Math.random() >= effect.chance) return null;
+    // prob filtering is at rule level (prob field on rule def)
     var template = (effect.templateMap && effect.templateMap[node.templateId]) || effect.defaultTemplate;
     var dropCount = Math.max(1, Math.floor(node.count * effect.countRate));
     spawnItem(template, dropCount, node.container, node.center);

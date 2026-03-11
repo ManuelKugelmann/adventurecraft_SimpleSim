@@ -63,9 +63,12 @@ var Sense = {
     // Stone density in current container
     var stoneCount = 0;
     var entities = World.groupsInContainer(container);
+    var snap = Snapshot.active();
     for (var i = 0; i < entities.length; i++) {
-      if (entities[i].alive && TEMPLATES[entities[i].templateId].category === 'item') {
-        stoneCount += entities[i].count;
+      var eAlive = snap ? Snapshot.alive(entities[i].id) : entities[i].alive;
+      var eCount = snap ? Snapshot.count(entities[i].id) : entities[i].count;
+      if (eAlive && TEMPLATES[entities[i].templateId].category === 'item') {
+        stoneCount += eCount;
       }
     }
     model.stones.density = stoneCount / group.tileCount;
@@ -80,10 +83,13 @@ var Sense = {
     var entities = World.groupsInContainer(containerId);
     var myCategory = TEMPLATES[node.templateId].category;
     var myStrength = TEMPLATES[node.templateId].strength;
+    var snap = Snapshot.active();
 
     for (var i = 0; i < entities.length; i++) {
       var other = entities[i];
-      if (other.id === node.id || !other.alive || other.count <= 0) continue;
+      var otherAlive = snap ? Snapshot.alive(other.id) : other.alive;
+      var otherCount = snap ? Snapshot.count(other.id) : other.count;
+      if (other.id === node.id || !otherAlive || otherCount <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
       var cat = otherTmpl.category;
 
@@ -91,7 +97,7 @@ var Sense = {
       if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {
         if (isHere) {
           if (!model.food.here) model.food.here = other;
-          model.food.count += other.count;
+          model.food.count += otherCount;
         } else if (!model.foodNearby) {
           model.foodNearby = containerId;
         }
@@ -101,7 +107,7 @@ var Sense = {
       if (diet.eats.indexOf(cat) >= 0 && cat !== 'plant' && cat !== 'seed' && cat !== 'item') {
         if (isHere) {
           if (!model.prey.here) model.prey.here = other;
-          model.prey.count += other.count;
+          model.prey.count += otherCount;
         } else if (!model.preyNearby) {
           model.preyNearby = containerId;
         }
@@ -146,7 +152,9 @@ function evalRuleConditions(conditions, vitals, sense, count, node) {
 }
 
 function _resolveField(field, vitals, sense, count, node) {
-  if (field === 'count') return count;
+  if (field === 'count') {
+    return (Snapshot.active() && node) ? Snapshot.count(node.id) : count;
+  }
   if (field === 'category') return node ? TEMPLATES[node.templateId].category : undefined;
   if (field === 'templateId') return node ? node.templateId : undefined;
   if (field.indexOf('sense.') === 0) {
@@ -157,6 +165,11 @@ function _resolveField(field, vitals, sense, count, node) {
       obj = obj[path[i]];
     }
     return obj;
+  }
+  // Vitals: read from snapshot when active
+  if (Snapshot.active() && node) {
+    var snapV = Snapshot.vitals(node.id);
+    if (snapV && snapV[field] !== undefined) return snapV[field];
   }
   return vitals ? vitals[field] : undefined;
 }

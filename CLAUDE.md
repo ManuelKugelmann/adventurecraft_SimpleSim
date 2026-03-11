@@ -26,10 +26,12 @@ The WIP spec defines the full architecture. This prototype implements:
 | Tiles and regions are nodes | tile_* and tilegroup templates in World.nodes, recursive hierarchy | aligned |
 | Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
 | Rules by layer (L0-L4) | L0 base (action costs), L1 bio (drains/damage), L2 reflex (auto-drink/reproduce), L3 roles, L4 plans | aligned |
-| Roles (reactive behaviors) | roles.js: ROLE_DEFS with condition/action priority lists | aligned |
+| Roles (reactive behaviors) | roles.js: ROLE_DEFS with numeric priority (0-95), sorted by priority desc | aligned |
 | Plans (proactive sequences) | planner.js: PROCESSES with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
 | Compound statistics (Weight>1) | Compound execution for large groups, placeholder sim for small | aligned |
 | Split/merge on variance | groups.js: merge with maxSize cap, split prefers food-rich neighbors | improved |
+| Read/write separation | snapshot.js: per-layer state snapshot; reads from snapshot, writes to live | aligned |
+| Probabilistic rules (prob) | `prob` field on rules (0..1), checked after conditions pass | aligned |
 | Scale-adaptive dt | Single fixed dt, no adaptive scaling yet | not implemented |
 | .acf rule format | Hardcoded JS, no parser | not implemented |
 | Fixed-point Q16.16 | JS floats | not implemented |
@@ -56,6 +58,7 @@ index.html          Entry point, grid container, controls
 js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES (all entity definitions)
 js/node.js          createNode(), computeSpread() — node factory
 js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
+js/snapshot.js      Snapshot — read/write separation via state snapshots per rule layer
 js/sense.js         Sense.scan() — range-limited world model per entity; evalRuleConditions()
 js/rules.js         BIO_RULE_DEFS (data) + Rules engine (code) — biology as declarative rule table
 js/roles.js         ROLE_DEFS (data) + Roles engine — behavior as declarative rules
@@ -84,7 +87,10 @@ Fields: vitals (`hunger`, `thirst`), `count`, `category`, `templateId`, sense pa
 Operators: `>`, `<`, `>=`, `<=`, `==`, `!=`, `in` (array membership).
 All filtering (including entity category) uses the same condition system — no special-case fields.
 
-**Layer execution order per tick**: L1 Biology → L2 Reflex → Groups → Movement → L3/L4 Roles+Plans (L0 costs applied per action)
+Rules may also have `prob` (0..1) — a probabilistic trigger checked after conditions pass.
+Aligns with spec's `prob = <expr>` on rule entries (mutually exclusive with `rate`).
+
+**Layer execution order per tick**: Snapshot → L1 Biology → Clamp → Snapshot → L2 Reflex → Clamp → Groups → Movement → Snapshot → L3/L4 Roles+Plans → Clamp → Cleanup
 
 ### Sense Model (Perception)
 
@@ -174,11 +180,33 @@ Role evaluation is skipped while an entity is in transit.
 
 ### Execution Order (per tick)
 
-1. **L1 Biology** (all nodes): passive drains, damage, death, plant growth, seed drop
-2. **L2 Reflex** (animals): involuntary responses — auto-drink near water, reproduction
+Each rule layer uses **read/write separation**: `Snapshot.capture()` before the layer,
+rules read from the snapshot (via `Snapshot.active()`), effects write to live nodes,
+`Snapshot.clear()` + `Snapshot.clampCounts()` after. This ensures iteration order
+within a layer doesn't affect outcomes (parallel execution model).
+
+1. **Snapshot** → **L1 Biology** (all nodes): passive drains, damage, death, plant growth, seed drop → **Clamp**
+2. **Snapshot** → **L2 Reflex** (animals): involuntary responses — auto-drink near water, reproduction → **Clamp**
 3. **Groups** (every 5 ticks): merge similar, split oversized
 4. **Movement**: advance entities along graph edges
-5. **L3/L4 Actors** (by speed desc): role evaluation → compound or placeholder sim → actions (L0 base costs applied per action)
+5. **Snapshot** → **L3/L4 Actors** (by speed desc): role evaluation → compound or placeholder sim → actions → **Clamp**
+6. **Cleanup**: remove dead nodes
+
+### Read/Write Separation (Snapshot)
+
+`Snapshot.capture()` copies `{ vitals, count, alive }` for every living node.
+While active, `evalRuleConditions()` reads vitals/count from snapshot,
+`Sense.scan()` reads other nodes' count/alive from snapshot, and
+`Effects._consume/_combat` reads source/prey counts from snapshot.
+Effects write to live nodes — multiple actors may over-decrement the same source
+(intentional parallel execution). `Snapshot.clampCounts()` post-layer clamps
+counts to 0 and marks dead.
+
+### Role Priority
+
+Role entries have a numeric `priority` field (0-95). Higher = more involuntary.
+Matched rules are sorted by priority descending. Rules at or above
+`CONFIG.URGENT_PRIORITY` (80) cause the whole group to act in unison.
 
 ### Transport System
 
