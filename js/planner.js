@@ -133,7 +133,7 @@ var Planner = {
         break;
 
       case 'action':
-        if (step.valid && !evalRuleConditions(step.valid, node.traits.vitals, sense, node.count)) {
+        if (step.valid && !evalRuleConditions(step.valid, node.traits.vitals, sense, node.count, node)) {
           agency.activePlan = null;
           return;
         }

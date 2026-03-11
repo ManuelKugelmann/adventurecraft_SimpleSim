@@ -77,11 +77,11 @@ var Roles = {
     }
   },
 
-  _matchRules: function(roleDef, vitals, sense, count) {
+  _matchRules: function(roleDef, vitals, sense, count, node) {
     var matches = [];
     for (var i = 0; i < roleDef.length; i++) {
       var rule = roleDef[i];
-      if (!rule.when || evalRuleConditions(rule.when, vitals, sense, count)) {
+      if (!rule.when || evalRuleConditions(rule.when, vitals, sense, count, node)) {
         matches.push(rule);
       }
     }
@@ -101,7 +101,7 @@ var Roles = {
     var roleDef = ROLE_DEFS[agency.activeRole];
     if (!roleDef) return;
 
-    var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count);
+    var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count, node);
     if (matches.length === 0) return;
 
     if (this._isComplex(node, sense, matches)) {
@@ -178,7 +178,7 @@ var Roles = {
 
       for (var i = 0; i < roleDef.length; i++) {
         var rule = roleDef[i];
-        if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1)) {
+        if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, node)) {
           actionTally[rule.name] = (actionTally[rule.name] || 0) + 1;
           break;
         }

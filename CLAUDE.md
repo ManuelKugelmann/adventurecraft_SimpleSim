@@ -58,7 +58,7 @@ js/node.js          createNode(), computeSpread() — node factory
 js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
 js/sense.js         Sense.scan() — range-limited world model per entity; evalRuleConditions()
 js/rules.js         BIO_RULE_DEFS (data) + Rules engine (code) — biology as declarative rule table
-js/roles.js         ROLE_DEFS (data) + ACTIONS (code) + Roles engine — behavior as declarative rules
+js/roles.js         ROLE_DEFS (data) + Roles engine — behavior as declarative rules
 js/planner.js       Planner + PROCESSES — multi-step plans using sense model (no omniscient search)
 js/groups.js        Groups — merge/split passes for nodes with group trait
 js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarchy borders, inspector
@@ -80,7 +80,9 @@ evaluated by **engine code**, organized in layers:
 | L4 Plans | `PROCESS_DEFS` — step sequences (startmove, wait, action) | `Planner.start/executeStep()` | planner.js |
 
 Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
-Fields reference vitals (`hunger`, `thirst`) or sense model paths (`sense.threats.count`).
+Fields: vitals (`hunger`, `thirst`), `count`, `category`, `templateId`, sense paths (`sense.threats.count`).
+Operators: `>`, `<`, `>=`, `<=`, `==`, `!=`, `in` (array membership).
+All filtering (including entity category) uses the same condition system — no special-case fields.
 
 **Layer execution order per tick**: L1 Biology → L2 Reflex → Groups → Movement → L3/L4 Roles+Plans (L0 costs applied per action)
 

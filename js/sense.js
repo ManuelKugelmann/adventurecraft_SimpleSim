@@ -126,17 +126,19 @@ var Sense = {
   },
 };
 
-// === Rule condition evaluator (shared by Rules and Roles engines) ===
-// Evaluates an array of [field, op, value] conditions against vitals + sense model.
-// Fields: 'hunger','thirst',etc (vitals), 'count', 'sense.X.Y' (sense model paths).
+// === Rule condition evaluator (shared by Rules, Roles, and Planner engines) ===
+// Evaluates an array of [field, op, value] conditions against vitals + sense model + node.
+// Fields: 'hunger','thirst',etc (vitals), 'count', 'category', 'templateId',
+//         'sense.X.Y' (sense model paths).
+// Operators: >, <, >=, <=, ==, !=, in (value is array, checks membership).
 // If a vital field is undefined on the entity, that condition is skipped (passes).
 
-function evalRuleConditions(conditions, vitals, sense, count) {
+function evalRuleConditions(conditions, vitals, sense, count, node) {
   for (var i = 0; i < conditions.length; i++) {
     var field = conditions[i][0];
     var op = conditions[i][1];
     var expected = conditions[i][2];
-    var actual = _resolveField(field, vitals, sense, count);
+    var actual = _resolveField(field, vitals, sense, count, node);
     // Missing vital → condition not applicable, skip it
     if (actual === undefined) continue;
     if (!_compareOp(actual, op, expected)) return false;
@@ -144,8 +146,10 @@ function evalRuleConditions(conditions, vitals, sense, count) {
   return true;
 }
 
-function _resolveField(field, vitals, sense, count) {
+function _resolveField(field, vitals, sense, count, node) {
   if (field === 'count') return count;
+  if (field === 'category') return node ? TEMPLATES[node.templateId].category : undefined;
+  if (field === 'templateId') return node ? node.templateId : undefined;
   if (field.indexOf('sense.') === 0) {
     var path = field.slice(6).split('.');
     var obj = sense;
@@ -166,6 +170,7 @@ function _compareOp(a, op, b) {
     case '<=': return a <= b;
     case '==': return a == b;
     case '!=': return a != b;
+    case 'in': return Array.isArray(b) && b.indexOf(a) >= 0;
     default:   return false;
   }
 }
