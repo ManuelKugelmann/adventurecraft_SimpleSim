@@ -2,7 +2,7 @@
 
 Browser-based ecosystem simulation bootstrapping the core [adventurecraft](https://github.com/ManuelKugelmann/adventurecraft_WIP) architecture.
 
-**[Live Demo](https://ManuelKugelmann.github.io/adventurecraft_SimpleSim/)**
+**[Live Demo](https://ManuelKugelmann.github.io/adventurecraft_SimpleSim/?v=02a2f7e)**
 
 ## Run
 
