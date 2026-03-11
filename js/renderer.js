@@ -7,6 +7,7 @@ var Renderer = {
   tickEl: null,
   inspectorEl: null,
   selectedNode: null,
+  showSense: false,
   // Pre-computed: border info per tile (set once after hierarchy gen)
   borderInfo: null,  // flat array of {top,right,bottom,left} border flags + level + color
 
@@ -351,7 +352,6 @@ var Renderer = {
     } else {
       this.selectedNode = null;
       var group = World.groups.get(groupId);
-      // Show hierarchy info
       var hierParts = [];
       var g = group;
       while (g) {
@@ -366,6 +366,50 @@ var Renderer = {
     }
   },
 
+  _formatVal: function(val, depth) {
+    if (val === null) return '<span class="insp-null">null</span>';
+    if (val === undefined) return '<span class="insp-null">undefined</span>';
+    if (typeof val === 'number') {
+      var display = val === Math.floor(val) ? String(val) : val.toFixed(2);
+      return '<span class="insp-val">' + display + '</span>';
+    }
+    if (typeof val === 'boolean' || typeof val === 'string') {
+      return '<span class="insp-val">' + String(val) + '</span>';
+    }
+    if (Array.isArray(val)) {
+      if (val.length === 0) return '<span class="insp-null">[]</span>';
+      if (depth > 1) return '<span class="insp-val">[' + val.length + ']</span>';
+      var items = [];
+      for (var i = 0; i < val.length; i++) {
+        items.push(this._formatVal(val[i], depth + 1));
+      }
+      return '[' + items.join(', ') + ']';
+    }
+    if (typeof val === 'object') {
+      if (depth > 1) return '<span class="insp-val">{...}</span>';
+      // For node references from sense, show a summary
+      if (val.templateId && val.id !== undefined) {
+        var t = TEMPLATES[val.templateId];
+        return '<span class="insp-val">' + (t ? t.symbol : '?') + val.templateId + '#' + val.id +
+          '(×' + Math.floor(val.count) + ')</span>';
+      }
+      var lines = [];
+      var keys = Object.keys(val);
+      for (var i = 0; i < keys.length; i++) {
+        lines.push('<span class="insp-key">' + keys[i] + '</span>: ' +
+          this._formatVal(val[keys[i]], depth + 1));
+      }
+      return lines.join('\n');
+    }
+    return '<span class="insp-val">' + String(val) + '</span>';
+  },
+
+  _buildSection: function(label, obj) {
+    var html = '<span class="insp-label">' + label + '</span>';
+    html += this._formatVal(obj, 0);
+    return '<div class="insp-section">' + html + '</div>';
+  },
+
   updateInspector: function() {
     var n = this.selectedNode;
     if (!n || !n.alive) {
@@ -374,59 +418,124 @@ var Renderer = {
       return;
     }
     var tmpl = TEMPLATES[n.templateId];
+    var self = this;
+
+    // Header line
     var containerGroup = World.groups.get(n.container);
     var containerLabel = n.container;
     if (containerGroup) {
       containerLabel = 'L' + containerGroup.level + '#' + n.container + '(' + containerGroup.tileCount + 't)';
     }
-    var parts = ['<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
-      ' | count:' + Math.floor(n.count) + ' | container:' + containerLabel];
-
-    if (n.traits.vitals) {
-      var v = n.traits.vitals;
-      var vitalStr = 'hunger:' + Math.round(v.hunger) + ' energy:' + Math.round(v.energy);
-      if (v.health !== undefined) vitalStr += ' health:' + Math.round(v.health);
-      if (v.thirst !== undefined) vitalStr += ' thirst:' + Math.round(v.thirst);
-      parts.push(vitalStr);
-    }
-    if (n.position && n.position.target !== null) {
-      var posAt = n.position.at === 'center' ? 'C' : '#' + n.position.at;
-      var posTo = n.position.target === 'center' ? 'C' : '#' + n.position.target;
-      parts.push('pos:' + posAt + '→' + posTo + ' ' + Math.round(n.position.progress * 100) + '%');
-    }
+    var header = '<b>' + tmpl.symbol + ' ' + n.templateId + '</b> #' + n.id +
+      ' | count:' + Math.floor(n.count) + ' | container:' + containerLabel;
     if (n.traits.agency) {
       var a = n.traits.agency;
-      parts.push('role:' + a.activeRole);
-      if (a.activePlan) parts.push('plan:' + a.activePlan.goal);
-      if (a.lastAction) parts.push('action:' + a.lastAction);
-      if (a.actionSpread) {
-        var sp = [];
-        var sk = Object.keys(a.actionSpread);
-        for (var s = 0; s < sk.length; s++) sp.push(sk[s] + ':' + a.actionSpread[sk[s]]);
-        if (sp.length > 0) parts.push('spread[' + sp.join(' ') + ']');
-      }
+      if (a.lastAction) header += ' | action:' + a.lastAction;
+      if (a.activePlan) header += ' | plan:' + a.activePlan.goal;
     }
+
+    // Sense toggle button
+    var senseBtn = '<button class="insp-toggle' + (this.showSense ? ' active' : '') +
+      '" onclick="Renderer.showSense=!Renderer.showSense;Renderer.updateInspector()">Sense</button>';
+
+    var html = '<div class="insp-header">' + header + ' ' + senseBtn + '</div>';
+    html += '<div class="insp-body">';
+
+    // Node section — core fields
+    var core = {
+      id: n.id,
+      templateId: n.templateId,
+      category: tmpl.category,
+      count: n.count,
+      alive: n.alive,
+      container: n.container,
+      parent: n.parent,
+      center: n.center,
+      spread: n.spread,
+    };
+    if (n.containedBy) core.containedBy = n.containedBy;
+    if (n.contains && n.contains.length > 0) {
+      var inv = [];
+      for (var c = 0; c < n.contains.length; c++) {
+        var item = World.nodes.get(n.contains[c]);
+        if (item && item.alive) inv.push(item.templateId + '#' + item.id + '(×' + Math.floor(item.count) + ')');
+      }
+      core.contains = inv;
+    }
+    html += this._buildSection('node', core);
+
+    // Position section
+    if (n.position) {
+      html += this._buildSection('position', n.position);
+    }
+
+    // Vitals section
+    if (n.traits.vitals) {
+      html += this._buildSection('vitals', n.traits.vitals);
+    }
+
+    // Agency section
+    if (n.traits.agency) {
+      var ag = n.traits.agency;
+      var agencyView = {
+        activeRole: ag.activeRole,
+        lastAction: ag.lastAction,
+      };
+      if (ag.activePlan) {
+        agencyView.activePlan = {
+          goal: ag.activePlan.goal,
+          stepIdx: ag.activePlan.stepIdx,
+          target: ag.activePlan.target,
+        };
+      }
+      if (ag.actionSpread) agencyView.actionSpread = ag.actionSpread;
+      html += this._buildSection('agency', agencyView);
+    }
+
+    // Diet section
+    if (n.traits.diet) {
+      html += this._buildSection('diet', n.traits.diet);
+    }
+
+    // Group section
     if (n.traits.group) {
-      var gr = n.traits.group;
-      var groupParts = ['maxSize:' + gr.maxSize, 'mergeThresh:' + gr.mergeThreshold];
-      // Count how many same-species nodes share this container
+      var gv = {
+        maxSize: n.traits.group.maxSize,
+        mergeThreshold: n.traits.group.mergeThreshold,
+      };
       var siblings = World.groupsInContainer(n.container);
       var sameSpecies = 0;
       for (var si = 0; si < siblings.length; si++) {
         if (siblings[si].templateId === n.templateId && siblings[si].alive) sameSpecies++;
       }
-      if (sameSpecies > 1) groupParts.push('herds:' + sameSpecies);
-      parts.push('group[' + groupParts.join(' ') + ']');
-    }
-    if (n.contains && n.contains.length > 0) {
-      var inv = [];
-      for (var c = 0; c < n.contains.length; c++) {
-        var item = World.nodes.get(n.contains[c]);
-        if (item && item.alive) inv.push(item.templateId + ':' + Math.floor(item.count));
-      }
-      if (inv.length > 0) parts.push('carries[' + inv.join(' ') + ']');
+      if (sameSpecies > 1) gv.herdsHere = sameSpecies;
+      html += this._buildSection('group', gv);
     }
 
-    this.inspectorEl.innerHTML = parts.join(' | ');
+    // Spatial section
+    if (n.traits.spatial) {
+      html += this._buildSection('spatial', n.traits.spatial);
+    }
+
+    // Sense model (filtered world model)
+    if (this.showSense && n.traits.agency) {
+      var sense = Sense.scan(n);
+      var sv = {
+        food: { here: sense.food.here, count: sense.food.count },
+        prey: { here: sense.prey.here, count: sense.prey.count },
+        threats: { count: sense.threats.count, here: sense.threats.here },
+        biggerThreats: { count: sense.biggerThreats.count, here: sense.biggerThreats.here },
+        water: sense.water,
+        stones: sense.stones,
+        neighbors: sense.neighbors.length,
+        foodNearby: sense.foodNearby,
+        preyNearby: sense.preyNearby,
+        waterNearby: sense.waterNearby,
+      };
+      html += this._buildSection('sense (world model)', sv);
+    }
+
+    html += '</div>';
+    this.inspectorEl.innerHTML = html;
   },
 };

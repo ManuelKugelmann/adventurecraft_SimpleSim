@@ -165,9 +165,78 @@ h1 {
   color: #b0b0d0;
   min-height: 18px;
   max-width: 960px;
-  text-align: center;
+  width: 100%;
 }
 
 #inspector b {
   color: #d0d0f0;
+}
+
+#inspector .insp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+#inspector .insp-toggle {
+  background: #2a2a4a;
+  color: #a0a0c0;
+  border: 1px solid #4a4a6a;
+  padding: 1px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+#inspector .insp-toggle:hover {
+  background: #3a3a5a;
+}
+
+#inspector .insp-toggle.active {
+  background: #4a6a8a;
+  border-color: #6a8aaa;
+}
+
+#inspector .insp-body {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+#inspector .insp-section {
+  background: #1e1e36;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: pre;
+  line-height: 1.5;
+  text-align: left;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+#inspector .insp-section .insp-label {
+  color: #8888aa;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+#inspector .insp-key {
+  color: #8888bb;
+}
+
+#inspector .insp-val {
+  color: #ccccee;
+}
+
+#inspector .insp-null {
+  color: #666;
 }
