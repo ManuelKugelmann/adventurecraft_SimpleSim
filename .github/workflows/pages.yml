@@ -66,9 +66,12 @@ jobs:
 
       - name: Build index page
         run: |
+          STABLE_SHA=$(git -C _site/stable rev-parse --short HEAD)
           PREVIEW_EXISTS="false"
+          PREVIEW_SHA=""
           if [ -d "_site/preview" ]; then
             PREVIEW_EXISTS="true"
+            PREVIEW_SHA=$(git -C _site/preview rev-parse --short HEAD)
           fi
           cat > _site/index.html << 'HTMLEOF'
           <!DOCTYPE html>
@@ -90,20 +93,24 @@ jobs:
               <div class="card">
                 <h2>Stable</h2>
                 <p>Current main branch</p>
-                <a href="stable/">Open stable version</a>
+                <a href="stable/?v=STABLE_SHA">Open stable version</a>
               </div>
               <div class="card" id="preview-card">
                 <h2>Preview</h2>
                 <p>Latest PR branch</p>
-                <a href="preview/">Open preview version</a>
+                <a href="preview/?v=PREVIEW_SHA">Open preview version</a>
               </div>
             </div>
           </body>
           </html>
           HTMLEOF
+          sed -i "s/STABLE_SHA/$STABLE_SHA/g" _site/index.html
+          if [ -n "$PREVIEW_SHA" ]; then
+            sed -i "s/PREVIEW_SHA/$PREVIEW_SHA/g" _site/index.html
+          fi
           if [ "$PREVIEW_EXISTS" = "false" ]; then
             mkdir -p _site/preview
-            echo '<html><body style="background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;padding:40px"><h1>No preview available</h1><p>No open PR found. <a href="../stable/" style="color:#a0c4ff">Go to stable version</a></p></body></html>' > _site/preview/index.html
+            echo '<html><body style="background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;padding:40px"><h1>No preview available</h1><p>No open PR found. <a href="../stable/?v='"$STABLE_SHA"'" style="color:#a0c4ff">Go to stable version</a></p></body></html>' > _site/preview/index.html
           fi
 
       - uses: actions/configure-pages@v5
