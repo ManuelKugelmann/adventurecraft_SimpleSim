@@ -338,15 +338,24 @@ var Renderer = {
   inspect: function(x, y) {
     var tile = World.tileAt(x, y);
     var groupId = World.groupOfTile[y * World.width + x];
-    var groups = World.groupsInContainer(groupId);
 
-    if (groups.length > 0) {
-      var best = groups[0];
-      var bestDist = Math.abs(best.center.x - x) + Math.abs(best.center.y - y);
-      for (var i = 1; i < groups.length; i++) {
-        var d = Math.abs(groups[i].center.x - x) + Math.abs(groups[i].center.y - y);
-        if (d < bestDist) { bestDist = d; best = groups[i]; }
+    // Find closest entity to clicked tile across all entities
+    var best = null;
+    var bestDist = Infinity;
+    World.nodes.forEach(function(node) {
+      if (!node.alive) return;
+      var tmpl = TEMPLATES[node.templateId];
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
+      if (node.containedBy) return;
+      var d = Math.abs(node.center.x - x) + Math.abs(node.center.y - y);
+      if (d < bestDist || (d === bestDist && best && !best.traits.agency && node.traits.agency)) {
+        bestDist = d;
+        best = node;
       }
+    });
+
+    // Select entity if click is within its spread + 1
+    if (best && bestDist <= best.spread + 1) {
       this.selectedNode = best;
       this.updateInspector();
     } else {
