@@ -191,6 +191,33 @@ var Renderer = {
   draw: function() {
     var w = World.width, h = World.height;
 
+    // Collect signal overlay info: token type → color, applied per-tile
+    var signalAt = {};  // tileIdx → { color, alpha }
+    var SIGNAL_COLORS = {
+      danger: '#ff2020',
+      food:   '#40ff40',
+      follow: '#4080ff',
+    };
+    World.nodes.forEach(function(node) {
+      if (!node.alive || !node.traits.signal) return;
+      var tokens = node.traits.signal.tokens;
+      if (!tokens || tokens.length === 0) return;
+      var tokType = tokens[0].type;
+      var sigColor = SIGNAL_COLORS[tokType] || '#ffff40';
+      // Apply signal tint to tiles in the signal's container
+      var group = World.groups.get(node.container);
+      if (!group) return;
+      var alpha = Math.min(1, node.count * 0.25); // fade with decay
+      var tiles = group.tiles;
+      if (!tiles) return;
+      for (var ti = 0; ti < tiles.length; ti++) {
+        var idx = tiles[ti];
+        if (!signalAt[idx] || signalAt[idx].alpha < alpha) {
+          signalAt[idx] = { color: sigColor, alpha: alpha };
+        }
+      }
+    });
+
     // Collect all visible groups with their spread tiles
     var allGroups = [];
     World.nodes.forEach(function(node) {
@@ -287,6 +314,15 @@ var Renderer = {
         span.style.color = tileType.color;
         span.style.backgroundColor = tileType.bg;
       }
+      // Signal overlay: blend signal color into background
+      var sig = signalAt[i];
+      if (sig) {
+        var baseBg = span.style.backgroundColor || tileType.bg;
+        // Convert rgb() back to hex-ish, or just re-tint from the base
+        span.style.backgroundColor = this.tintColor(
+          this._bgToHex(span.style.backgroundColor, tileType.bg),
+          sig.color, sig.alpha * 0.35);
+      }
       span.style.opacity = 1;
     }
 
@@ -305,6 +341,17 @@ var Renderer = {
     var g = Math.round(b.g * (1 - amount) + t.g * amount);
     var bl = Math.round(b.b * (1 - amount) + t.b * amount);
     return 'rgb(' + r + ',' + g + ',' + bl + ')';
+  },
+
+  // Convert an rgb() or hex string back to hex for re-tinting
+  _bgToHex: function(rgbStr, fallbackHex) {
+    if (!rgbStr || rgbStr.indexOf('rgb') < 0) return fallbackHex || '#000000';
+    var m = rgbStr.match(/(\d+)/g);
+    if (!m || m.length < 3) return fallbackHex || '#000000';
+    var r = parseInt(m[0]).toString(16); if (r.length < 2) r = '0' + r;
+    var g = parseInt(m[1]).toString(16); if (g.length < 2) g = '0' + g;
+    var b = parseInt(m[2]).toString(16); if (b.length < 2) b = '0' + b;
+    return '#' + r + g + b;
   },
 
   parseHex: function(hex) {

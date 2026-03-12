@@ -39,7 +39,7 @@ var Groups = {
             continue;
           }
 
-          // Agents/plants: merge if all vital differences within threshold and result fits maxSize
+          // Agents/plants: merge if vital differences within threshold and result fits maxSize
           var va = a.traits.vitals, vb = b.traits.vitals;
           var thr = gt.mergeThreshold;
           var vitalsClose = Math.abs(va.hunger - vb.hunger) < thr &&
@@ -104,7 +104,7 @@ var Groups = {
       newNode.container = targetGroup;
       newNode.parent = targetGroup;
       var group = World.groups.get(targetGroup);
-      if (!group) { node.count += splitCount; continue; }  // target gone, undo split
+      if (!group) continue;
       newNode.center.x = group.center.x;
       newNode.center.y = group.center.y;
       computeSpread(newNode);

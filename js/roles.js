@@ -16,12 +16,7 @@
 // Conditions: [field, op, value] — evaluated by evalRuleConditions()
 // Priority: 0-95 integer. Higher = more involuntary. >= URGENT_PRIORITY = whole group acts.
 // Matched rules sorted by priority desc; first match with highest priority wins.
-// Future .acf:
-//   role grazer [herbivore, L3] {
-//     flee:      when sense.threats.count > 0, do flee, priority = 90
-//     graze:     when hunger > 35 AND sense.food.here != null, do graze, priority = 40
-//   }
-
+//
 // Universal animal role: one role for all species.
 // Diet-driven sense model differentiates behavior automatically:
 // - Herbivores never see prey (diet.eats has no animal categories) → hunt/seekPrey never match
@@ -67,54 +62,33 @@ var ROLE_DEFS = {
 // === ROLE ENGINE (CODE) ===
 
 var Roles = {
-  // Unified evaluation: every tick, evaluate all role rules by priority.
-  // If the winning rule's plan is already running, continue it.
-  // Otherwise abandon the old plan and execute the winning rule.
-  // Plans are just the mechanism default roles use to satisfy drives —
-  // they're not a special execution mode.
+  // Evaluate drives each tick. Plans are not autonomous — they continue only
+  // if the originating drive still has highest priority.
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
-
-    // Still traversing a graph edge — wait for arrival, then re-evaluate
     if (World.isMoving(node)) return;
 
     var sense = Sense.scan(node);
     var roleDef = ROLE_DEFS[agency.activeRole];
 
-    // Quick check: if an active plan's drive still wins, continue it
+    // Re-evaluate drives even if plan is active
     if (agency.activePlan && roleDef) {
       var topRule = this._topMatch(roleDef, node.traits.vitals, sense, node.count, node);
       if (topRule && topRule.plan === agency.activePlan.goal) {
-        // Same drive, same plan — continue
         Planner.executeStep(node);
         return;
       }
-      // Different drive won or plan's drive no longer matches — abandon
+      // Drive changed — abandon plan
       agency.activePlan = null;
     }
 
-    // Normal role evaluation (compound statistics or per-individual placeholder)
+
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
       this.evaluatePlaceholders(node, sense);
     } else {
       this.evaluateCompound(node, sense);
     }
-  },
-
-  // Return the single highest-priority matching rule (fast path for plan continuation check)
-  _topMatch: function(roleDef, vitals, sense, count, node) {
-    var best = null;
-    var bestPri = -1;
-    for (var i = 0; i < roleDef.length; i++) {
-      var rule = roleDef[i];
-      var pri = rule.priority || 0;
-      if (pri > bestPri && (!rule.when || evalRuleConditions(rule.when, vitals, sense, count, node))) {
-        best = rule;
-        bestPri = pri;
-      }
-    }
-    return best;
   },
 
   _matchRules: function(roleDef, vitals, sense, count, node) {
@@ -130,6 +104,22 @@ var Roles = {
       return (b.priority || 0) - (a.priority || 0);
     });
     return matches;
+  },
+
+  // Fast single-best-rule lookup for plan continuation check
+  _topMatch: function(roleDef, vitals, sense, count, node) {
+    var best = null;
+    var bestPri = -1;
+    for (var i = 0; i < roleDef.length; i++) {
+      var rule = roleDef[i];
+      var pri = rule.priority || 0;
+      if (pri <= bestPri) continue;
+      if (!rule.when || evalRuleConditions(rule.when, vitals, sense, count, node)) {
+        best = rule;
+        bestPri = pri;
+      }
+    }
+    return best;
   },
 
   _execRule: function(rule, node, sense) {
@@ -232,7 +222,7 @@ var Roles = {
     var v = node.traits.vitals;
     var actionTally = {};
 
-    // Sort rules by priority desc (matches compound evaluation order)
+    // Sort rules by priority desc
     var sortedRules = roleDef.slice().sort(function(a, b) {
       return (b.priority || 0) - (a.priority || 0);
     });
@@ -245,9 +235,6 @@ var Roles = {
       if (v.health !== undefined) jv.health = clamp(v.health + (Rng.random() - 0.5) * 8, 0, 100);
       if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Rng.random() - 0.5) * 8, 0, 100);
 
-      // Pass null for node to prevent snapshot overriding jittered vitals/count.
-      // Role conditions only use vitals and sense fields, not category/templateId.
-      // Evaluate rules sorted by priority desc (same order as compound path).
       for (var i = 0; i < sortedRules.length; i++) {
         var rule = sortedRules[i];
         if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, null)) {

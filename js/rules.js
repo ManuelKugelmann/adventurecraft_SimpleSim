@@ -228,6 +228,7 @@ var Effects = {
   // --- Signal effect handler ---
   // Creates a virtual item node carrying knowledge tokens.
   // count = decay ticks (destroyed 1/tick by bio rule signalDecay).
+  // Generalized: used for sounds, scents, tracks, knowledge, contracts, etc.
   _signal: function(effect, node) {
     var sig = createNode('signal');
     sig.count = effect.decay || 3;

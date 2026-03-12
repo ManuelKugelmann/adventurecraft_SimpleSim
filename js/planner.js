@@ -9,12 +9,14 @@
 // All effects (movement, costs) are declared inline as data.
 
 // === PLAN DEFINITIONS (DATA) ===
-// Each plan: { initTarget?, fallback?, steps: [...] }
+// Each plan: { initTarget?, fallback?, predict?, risk?, steps: [...] }
 // Step types:
 //   startmove — initiate movement: { type:'startmove', destination, pickup, cost:[], label, noTarget? }
 //   wait      — block until movement completes: { type:'wait' }
 //   action    — execute named action: { type:'action', name, valid? }
 // cost: array of effect data applied on successful move
+// predict: { vital: delta } — estimated outcome per plan (for scoring)
+// risk: 0-1 base danger level (modified by strength ratio at runtime)
 // Future .acf:
 //   plan findFood [survival, universal] {
 //     params { target = SpatialRef }
@@ -84,27 +86,22 @@ var PLAN_DEFS = {
 
 var Planner = {
   // Score a plan based on predicted vital changes and risk.
-  // Higher score = more desirable. Intelligence gates lookahead depth:
-  //   int 1: only immediate need (no scoring, just run the plan)
+  // Intelligence gates lookahead depth:
+  //   int 1: no scoring (just run the plan)
   //   int 2: consider predicted effects on current vitals
   //   int 3+: also factor in risk using strength ratio
-  // Returns a number; higher is better.
   scorePlan: function(planName, node, sense) {
     var def = PLAN_DEFS[planName];
     if (!def || !def.predict) return 0;
 
     var intel = node.traits.spatial ? node.traits.spatial.intelligence : 1;
-    if (intel <= 1) return 0;  // low intelligence: no plan scoring
+    if (intel <= 1) return 0;
 
     var v = node.traits.vitals;
     if (!v) return 0;
 
     var score = 0;
     var predict = def.predict;
-
-    // Score each predicted vital change: bigger benefit when the vital is more critical.
-    // Hunger at 80 and predict hunger -15 → high value.
-    // Hunger at 20 and predict hunger -15 → low value.
     var keys = Object.keys(predict);
     for (var i = 0; i < keys.length; i++) {
       var vital = keys[i];
@@ -113,35 +110,26 @@ var Planner = {
       if (current === undefined) continue;
 
       if (delta < 0) {
-        // Reducing a vital (hunger, thirst, energy cost): value = how much we need it
-        // For needs (hunger/thirst): current is high → reducing is valuable
-        // For costs (energy): spending energy is always a cost
         if (vital === 'energy' || vital === 'health') {
           score += delta * 0.5;  // costs penalize score
         } else {
           score += (-delta) * (current / 100);  // more urgent need → higher value
         }
       } else {
-        // Increasing a vital (energy regen): value = how depleted we are
         score += delta * ((100 - current) / 100);
       }
     }
 
-    // Risk assessment (intelligence 3+): penalize risky plans based on strength ratio
+    // Risk assessment (intelligence 3+)
     if (intel >= 3 && def.risk > 0) {
       var myStrength = sense.self.strength * Math.max(1, node.count);
       var threatStrength = 0;
-
-      // Estimate prey strength for hunting plans
       if (planName === 'huntPrey' && sense.prey.here) {
         var preyTmpl = TEMPLATES[sense.prey.here.templateId];
         threatStrength = preyTmpl.strength * sense.prey.here.count;
       }
-
       var ratio = myStrength / Math.max(threatStrength, 1);
-      // risk penalty: higher when we're weaker relative to target
-      var riskPenalty = def.risk * (1 / Math.max(ratio, 0.1)) * 10;
-      score -= riskPenalty;
+      score -= def.risk * (1 / Math.max(ratio, 0.1)) * 10;
     }
 
     return score;

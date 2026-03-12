@@ -1,7 +1,7 @@
 // config.js — Templates, constants, tuning knobs
 // Multiscale hierarchy simulation
 
-// === Seeded PRNG (mulberry32) — deterministic, reproducible sim ===
+// Seeded PRNG (mulberry32) — deterministic simulation with CONFIG.RNG_SEED
 var Rng = {
   _state: 12345,
   seed: function(s) { this._state = s | 0 || 1; },
@@ -14,7 +14,6 @@ var Rng = {
 };
 
 var CONFIG = {
-  RNG_SEED: 12345,
   GRID_WIDTH: 80,
   GRID_HEIGHT: 80,
   TICK_MS: 200,
@@ -82,6 +81,9 @@ var CONFIG = {
 
   // Role priority threshold: rules at or above this act as urgent (whole group in unison)
   URGENT_PRIORITY: 80,
+
+  // Seeded PRNG
+  RNG_SEED: 42,
 };
 
 var TILE_TYPES = {
@@ -99,6 +101,8 @@ var TEMPLATES = {
   tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   // --- Structural containers (grouping hierarchy, all levels) ---
   tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
+  // --- Virtual items (signals: sounds, scents, tracks) ---
+  signal: { category: 'signal', symbol: '!', color: '#666', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
   grass: {
     category: 'plant',
@@ -215,7 +219,7 @@ var TEMPLATES = {
     strength: 2,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 2, intelligence: 1 },
+      spatial: { speed: 2, intelligence: 2 },
       social: { gregarious: 0.7 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null },
@@ -233,7 +237,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 1, intelligence: 2 },
-      social: { gregarious: 0.4 },
+      social: { gregarious: 0.5 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
@@ -248,8 +252,8 @@ var TEMPLATES = {
     strength: 6,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 1, intelligence: 3 },
-      social: { gregarious: 0.1 },
+      spatial: { speed: 1, intelligence: 2 },
+      social: { gregarious: 0.2 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 20 },
@@ -265,8 +269,8 @@ var TEMPLATES = {
     strength: 3,
     traits: {
       vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 3, intelligence: 3 },
-      social: { gregarious: 0.2 },
+      spatial: { speed: 3, intelligence: 2 },
+      social: { gregarious: 0.3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 30 },
