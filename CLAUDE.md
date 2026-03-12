@@ -289,6 +289,16 @@ Same seed → identical world generation and simulation outcomes.
 
 No build step. Open `index.html` in a browser. No dependencies.
 
+### Setup (once per clone)
+
+```
+git config core.hooksPath .githooks
+```
+
+This enables the pre-commit hook that auto-updates `?v=SHA` cache-bust
+markers in `index.html` and `README.md` whenever JS/CSS files are committed.
+The hash is computed from the staged diff content.
+
 ## Style
 
 - Plain ES5 JavaScript (no modules, no build, no transpile)
