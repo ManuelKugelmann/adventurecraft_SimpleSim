@@ -29,16 +29,6 @@ var Sense = {
       foodNearby:    null,   // first neighbor containerId with food (1 hop)
       preyNearby:    null,   // first neighbor containerId with prey (1 hop)
       waterNearby:   null,   // first neighbor containerId adjacent to water (1 hop)
-      // Signals: virtual items carrying knowledge tokens (sounds, scents, tracks)
-      signals:       { danger: 0, food: 0, follow: 0 },
-      // Allies: same-species entities (for social behavior)
-      allies:        { here: 0, nearby: 0 },
-      // Self-awareness: own stats for condition evaluation
-      self:          {
-        social: node.traits.social ? node.traits.social.gregarious : 0,
-        intelligence: node.traits.spatial ? node.traits.spatial.intelligence : 1,
-        strength: tmpl.strength,
-      },
     };
 
     if (!group) return model;
@@ -145,22 +135,6 @@ var Sense = {
         } else if (!model.preyNearby) {
           model.preyNearby = containerId;
         }
-      }
-
-      // Signals: read knowledge tokens from virtual items
-      if (cat === 'signal' && other.traits.signal) {
-        var tokens = other.traits.signal.tokens;
-        for (var ti = 0; ti < tokens.length; ti++) {
-          var tokType = tokens[ti].type;
-          if (model.signals[tokType] !== undefined) model.signals[tokType]++;
-        }
-        continue;  // signals are not food/prey/threats
-      }
-
-      // Allies: same species, not me
-      if (other.templateId === node.templateId) {
-        if (isHere) model.allies.here += otherCount;
-        else model.allies.nearby += otherCount;
       }
 
       // Threats and bigger threats — current container only

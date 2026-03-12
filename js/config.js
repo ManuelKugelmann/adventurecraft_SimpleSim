@@ -101,8 +101,6 @@ var TEMPLATES = {
   tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   // --- Structural containers (grouping hierarchy, all levels) ---
   tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
-  // --- Virtual items (signals: sounds, scents, tracks) ---
-  signal: { category: 'signal', symbol: '!', color: '#666', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
   grass: {
     category: 'plant',
