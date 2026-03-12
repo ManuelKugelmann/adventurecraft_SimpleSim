@@ -2,6 +2,14 @@
 // Role definitions are pure data (future target for .acf format parsing).
 // Role engine matches conditions via sense model, dispatches to Effects engine.
 // No imperative action code — all actions defined in ACTION_DEFS (rules.js).
+//
+// Hard rules (L1 bio, L2 reflex) always execute — dying, hunger, thirst happen regardless.
+// Roles/plans are evaluated AFTER hard rules, choosing which voluntary action to take.
+// Plans are just plans — the default mechanism roles use to satisfy drives.
+// Each tick, all rules are re-evaluated by priority. If the winning rule's plan
+// is already running, it continues. Otherwise the old plan is abandoned.
+// Entities can't get stuck: biological drives (hunger, fatigue, etc.) naturally
+// preempt any plan whose drive is no longer the top priority.
 
 // === ROLE DEFINITIONS (DATA) ===
 // Each entry: { name, priority, when (conditions), action/plan }
@@ -61,51 +69,54 @@ var ROLE_DEFS = {
 // === ROLE ENGINE (CODE) ===
 
 var Roles = {
+  // Unified evaluation: every tick, evaluate all role rules by priority.
+  // If the winning rule's plan is already running, continue it.
+  // Otherwise abandon the old plan and execute the winning rule.
+  // Plans are just the mechanism default roles use to satisfy drives —
+  // they're not a special execution mode.
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
 
-    var sense = Sense.scan(node);
-
-    // Always re-evaluate drives — plans are just plans, execution checks priority each tick
-    if (agency.activePlan) {
-      var roleDef = ROLE_DEFS[agency.activeRole];
-      if (roleDef) {
-        var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count, node);
-        var topRule = matches.length > 0 ? matches[0] : null;
-
-        // Find the rule that originated this plan
-        var planRule = this._findRuleByPlan(roleDef, agency.activePlan.goal);
-        var planPriority = planRule ? (planRule.priority || 0) : -1;
-
-        // Check if plan's drive still matches
-        var planDriveActive = planRule && (!planRule.when ||
-          evalRuleConditions(planRule.when, node.traits.vitals, sense, node.count, node));
-
-        if (!planDriveActive) {
-          // Drive gone (e.g., hunger sated) — abandon plan
-          agency.activePlan = null;
-        } else if (topRule && topRule !== planRule && (topRule.priority || 0) > planPriority) {
-          // Higher-priority drive preempts (e.g., threat appeared)
-          agency.activePlan = null;
-        } else {
-          // Plan's drive still valid and has priority — continue
-          if (!World.isMoving(node)) {
-            Planner.executeStep(node);
-          }
-          return;
-        }
-      }
-    }
-
-    // Not mid-movement for new actions (moving entities only get plan preemption above)
+    // Still traversing a graph edge — wait for arrival, then re-evaluate
     if (World.isMoving(node)) return;
 
+    var sense = Sense.scan(node);
+    var roleDef = ROLE_DEFS[agency.activeRole];
+
+    // Quick check: if an active plan's drive still wins, continue it
+    if (agency.activePlan && roleDef) {
+      var topRule = this._topMatch(roleDef, node.traits.vitals, sense, node.count, node);
+      if (topRule && topRule.plan === agency.activePlan.goal) {
+        // Same drive, same plan — continue
+        Planner.executeStep(node);
+        return;
+      }
+      // Different drive won or plan's drive no longer matches — abandon
+      agency.activePlan = null;
+    }
+
+    // Normal role evaluation (compound statistics or per-individual placeholder)
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
       this.evaluatePlaceholders(node, sense);
     } else {
       this.evaluateCompound(node, sense);
     }
+  },
+
+  // Return the single highest-priority matching rule (fast path for plan continuation check)
+  _topMatch: function(roleDef, vitals, sense, count, node) {
+    var best = null;
+    var bestPri = -1;
+    for (var i = 0; i < roleDef.length; i++) {
+      var rule = roleDef[i];
+      var pri = rule.priority || 0;
+      if (pri > bestPri && (!rule.when || evalRuleConditions(rule.when, vitals, sense, count, node))) {
+        best = rule;
+        bestPri = pri;
+      }
+    }
+    return best;
   },
 
   _matchRules: function(roleDef, vitals, sense, count, node) {
@@ -134,13 +145,6 @@ var Roles = {
   _findRule: function(roleDef, name) {
     for (var i = 0; i < roleDef.length; i++) {
       if (roleDef[i].name === name) return roleDef[i];
-    }
-    return null;
-  },
-
-  _findRuleByPlan: function(roleDef, planGoal) {
-    for (var i = 0; i < roleDef.length; i++) {
-      if (roleDef[i].plan === planGoal) return roleDef[i];
     }
     return null;
   },
