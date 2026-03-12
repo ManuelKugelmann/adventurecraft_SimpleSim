@@ -24,14 +24,18 @@ The WIP spec defines the full architecture. This prototype implements:
 | Two trees: ContainerNode + ParentNode | `container`/`parent` (grouping), `contains`/`containedBy` (structural transport) | aligned |
 | Weight (count) | `node.count` — 1=individual, >1=group/batch | aligned |
 | Tiles and regions are nodes | tile_* and tilegroup templates in World.nodes, recursive hierarchy | aligned |
-| Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, group | simplified |
+| Traits as composable structs | `node.traits` object with vitals, diet, agency, spatial, social, group, signal | simplified |
 | Rules by layer (L0-L4) | L0 base (action costs), L1 bio (drains/damage), L2 reflex (auto-drink/reproduce), L3 roles, L4 plans | aligned |
-| Roles (reactive behaviors) | roles.js: ROLE_DEFS with numeric priority (0-95), sorted by priority desc | aligned |
-| Plans (proactive sequences) | planner.js: PLAN_DEFS with step sequences (flee, findFood, findWater, huntPrey); BFS multi-hop pathfinding | aligned |
+| Roles (reactive behaviors) | roles.js: unified 'animal' role with priority-sorted rules; diet differentiates behavior | aligned |
+| Plans (proactive sequences) | planner.js: PLAN_DEFS with step sequences + predict/risk; drive-based preemption each tick | aligned |
 | Compound statistics (Weight>1) | Compound execution for large groups, placeholder sim for small | aligned |
 | Split/merge on variance | groups.js: merge with maxSize cap, split prefers food-rich neighbors | improved |
 | Read/write separation | snapshot.js: per-layer state snapshot; reads from snapshot, writes to live | aligned |
 | Probabilistic rules (prob) | `prob` field on rules (0..1), checked after conditions pass | aligned |
+| Seeded PRNG | Rng object (mulberry32), CONFIG.RNG_SEED, replaces all Math.random() | aligned |
+| Signals / virtual items | Signal nodes: category 'signal', knowledge tokens, decay via bio rules | aligned |
+| Social behavior | social trait (gregarious 0-1), alarm reflex, danger signal communication | aligned |
+| Plan scoring | predict/risk on plan defs, intelligence-gated lookahead in Planner.scorePlan() | aligned |
 | Scale-adaptive dt | Single fixed dt, no adaptive scaling yet | not implemented |
 | .acf rule format | Hardcoded JS, no parser | not implemented |
 | Fixed-point Q16.16 | JS floats | not implemented |
@@ -44,18 +48,20 @@ The WIP spec defines the full architecture. This prototype implements:
 | ContainerNode | container | Group ID at any hierarchy level |
 | ParentNode | parent | Grouping hierarchy (tiles→L1 group→L2 group→...) |
 | ContainerIndex | contains[] | What's physically inside me (carried items) |
-| SpatialTrait | spatial trait | Only has speed, no scale/capacity yet |
+| SpatialTrait | spatial trait | speed + intelligence (1-3, gates plan scoring depth) |
 | VitalsTrait | vitals trait | hunger/energy/health/thirst; spec also has fatigue/mood/wounds/mana |
 | DrivesTrait | — | Not implemented |
 | AttributesTrait | — | Not implemented |
 | SkillsTrait | — | Not implemented |
-| AgencyTrait | agency trait | activeRole + activePlan + lastAction |
+| AgencyTrait | agency trait | activeRole ('animal') + activePlan + lastAction |
+| SocialTrait | social trait | gregarious (0-1): pack behavior, alarm communication |
+| — | signal trait | Dynamic: kind, tokens[], emitter, emitterSpecies (set on creation) |
 
 ## Architecture
 
 ```
 index.html          Entry point, grid container, controls
-js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES (all entity definitions)
+js/config.js        CONFIG constants, TILE_TYPES, TEMPLATES, Rng (seeded PRNG)
 js/node.js          createNode(), computeSpread() — node factory
 js/world.js         World object: tile grid, recursive hierarchy, link graph, gradual movement
 js/snapshot.js      Snapshot — read/write separation via state snapshots per rule layer
@@ -77,13 +83,13 @@ evaluated by **engine code**, organized in layers:
 |---|---|---|---|
 | L0 Base | `ACTION_DEFS` — action costs inline as `{type:'vital'}` effects | `Effects.executeAction()` | rules.js |
 | L1 Bio | `BIO_RULE_DEFS` — passive drains, damage, death (no perception) | `Rules.biology()` | rules.js |
-| L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce) | `Rules.reflex()` | rules.js |
-| L3 Roles | `ROLE_DEFS` — condition→action mappings per archetype | `Roles._matchRules/_execRule()` | roles.js |
+| L2 Reflex | `REFLEX_RULE_DEFS` — involuntary responses (auto-drink, reproduce, alarm signal) | `Rules.reflex()` | rules.js |
+| L3 Roles | `ROLE_DEFS` — unified 'animal' role, diet-driven conditions | `Roles._matchRules/_execRule()` | roles.js |
 | L3 Actions | `ACTION_DEFS` — effect descriptions per action (consume, combat, move) | `Effects.executeAction()` | rules.js |
 | L4 Plans | `PLAN_DEFS` — step sequences (startmove, wait, action) | `Planner.start/executeStep()` | planner.js |
 
 Rule conditions use `[field, op, value]` tuples evaluated by `evalRuleConditions()`.
-Fields: vitals (`hunger`, `thirst`), `count`, `category`, `templateId`, sense paths (`sense.threats.count`).
+Fields: vitals (`hunger`, `thirst`), `count`, `category`, `templateId`, sense paths (`sense.threats.count`, `sense.self.social`, `sense.signals.danger`).
 Operators: `>`, `<`, `>=`, `<=`, `==`, `!=`, `in` (array membership).
 All filtering (including entity category) uses the same condition system — no special-case fields.
 
@@ -104,6 +110,9 @@ Aligns with spec's `prob = <expr>` on rule entries (mutually exclusive with `rat
   water:         { adjacent }           // water tile neighbor
   neighbors:     [walkable group ids]   // walkable 1-hop neighbors
   stones:        { density, blocked, slowed }
+  signals:       { danger, food, follow }  // nearby signal token counts
+  allies:        { here, nearby }       // same-species entity counts
+  self:          { social, intelligence, strength }  // own stats for conditions
   foodNearby:    neighborId | null      // first neighbor with food
   preyNearby:    neighborId | null      // first neighbor with prey
   waterNearby:   neighborId | null      // first neighbor near water
@@ -140,7 +149,7 @@ Node {
       target,       // null (stationary), 'center', or neighborId (destination)
       progress      // 0.0-1.0 (fraction of edge traversed)
     },
-    traits: {}      // vitals, diet, agency, spatial, group
+    traits: {}      // vitals, diet, agency, spatial, social, group, signal
 }
 ```
 
@@ -171,12 +180,13 @@ Role evaluation is skipped while an entity is in transit.
 
 - `terrain`: tile nodes (tile_grass, tile_water, tile_dirt, tile_rock)
 - `tilegroup`: hierarchy group nodes at all levels (L1 = same-type tile clusters, L2+ = recursive grouping)
+- `signal`: virtual items (sounds, scents, tracks, knowledge, contracts) — generalized data carriers
 - `plant`: grass, bush, tree (have vitals, group trait, no agency)
 - `seed`: grains, seeds (edible bulk items, no vitals)
 - `item`: stone (inert bulk, blocks movement at density)
-- `herbivore`: rabbit, deer (grazer role)
-- `omnivore`: pig, bear (forager role)
-- `carnivore`: fox, wolf (hunter role)
+- `herbivore`: rabbit, deer (unified 'animal' role, social trait)
+- `omnivore`: pig, bear (unified 'animal' role, social trait)
+- `carnivore`: fox, wolf (unified 'animal' role, social trait)
 
 ### Execution Order (per tick)
 
@@ -212,6 +222,68 @@ Matched rules are sorted by priority descending. Rules at or above
 
 Animals pick up seeds/stones when moving (`tryPickup`), carry them via `contains`/`containedBy`,
 and drop them in the new group (`dropContained`). Stones create movement penalties at high density.
+
+### Signals — Generalized Virtual Items
+
+Signals are nodes with category `signal` — generalized virtual items that carry knowledge
+tokens and decay naturally. Reusable for any information that exists in the world temporarily:
+
+- **Sounds**: short decay (3-4 ticks), used for alarm calls (danger token)
+- **Scents/tracks**: longer decay, emitted by world rules (future)
+- **Knowledge**: arbitrary token payloads (danger, food location, follow commands)
+- **Contracts/data**: any entity-to-entity information exchange
+
+Signal lifecycle:
+1. Created by `_signal` effect handler (L2 reflex alarm, future: voluntary signals)
+2. Exist as nodes in the world — sensed by `Sense.scan()` via `model.signals`
+3. Decay via bio rule `signalDecay` (destroy 1/tick, count = ticks remaining)
+4. Die when count reaches 0 (standard death system)
+
+Signal node structure:
+```
+node.traits.signal = {
+  kind: 'sound'|'scent'|'track'|...,
+  tokens: [{ type: 'danger'|'food'|'follow'|... }],
+  emitter: nodeId,          // who created this signal
+  emitterSpecies: templateId  // what species created it
+}
+```
+
+Grid visualization: signal overlay as subtle color tint (red=danger, green=food, blue=follow)
+on affected tiles, fading with remaining decay ticks.
+
+### Plan Execution Model
+
+Plans are just plans — not autonomous state machines. Each tick:
+1. Hard rules (L1 bio, L2 reflex) always execute — dying, hunger, thirst happen regardless
+2. `Roles.evaluate()` re-evaluates ALL role rules by priority
+3. If the winning rule's plan matches the active plan → continue it
+4. If a different drive won → abandon the old plan, execute the winning rule
+5. Entities can't get stuck: biological drives naturally preempt any stale plan
+
+Plan scoring (`Planner.scorePlan()`):
+- `predict` on plan defs: estimated vital deltas ({ hunger: -15, energy: -1.5 })
+- `risk` on plan defs: base danger level (0.4 for hunting)
+- Intelligence gates depth: int 1 = no scoring, int 2 = vital urgency, int 3+ = risk assessment
+- Used by compound evaluation when two close-priority plan rules compete
+
+### Unified Animal Role
+
+One `animal` role serves all species. Diet-driven sense model differentiates behavior:
+- Herbivores never see prey (diet.eats has no animal categories) → hunt rules never match
+- Carnivores never see plant food → graze rules never match
+- Omnivores see both → thresholds and plan scoring determine choice
+
+Social behavior: `social.gregarious` (0-1) enables:
+- Alarm reflex (L2): social animals emit danger signals when threats detected
+- fleeAlarm rule: flee when ally danger signals sensed nearby
+- Future: pack coordination, follow behavior
+
+### Seeded PRNG
+
+`Rng` object (mulberry32 algorithm) replaces all `Math.random()` calls.
+`Rng.seed(CONFIG.RNG_SEED)` called on init for deterministic, reproducible simulations.
+Same seed → identical world generation and simulation outcomes.
 
 ## Commands
 

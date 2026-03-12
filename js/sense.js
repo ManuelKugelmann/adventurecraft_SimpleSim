@@ -10,6 +10,7 @@ var Sense = {
     var container = node.container;
     var group = World.groups.get(container);
 
+    var tmpl = TEMPLATES[node.templateId];
     var model = {
       food:          { here: null, count: 0 },    // edible plants/seeds in my container
       prey:          { here: null, count: 0 },    // huntable animals in my container
@@ -18,6 +19,13 @@ var Sense = {
       water:         { adjacent: false },          // water tile neighbor of my container
       neighbors:     World.walkableNeighbors(container),
       stones:        { density: 0, blocked: false, slowed: false },
+      signals:       { danger: 0, food: 0, follow: 0 },  // nearby signal token counts
+      allies:        { here: 0, nearby: 0 },              // same-species counts
+      self:          {                                     // entity's own stats for conditions
+        social: node.traits.social ? node.traits.social.gregarious : 0,
+        intelligence: node.traits.spatial ? node.traits.spatial.intelligence : 1,
+        strength: tmpl.strength,
+      },
       foodNearby:    null,   // first neighbor containerId with food (1 hop)
       preyNearby:    null,   // first neighbor containerId with prey (1 hop)
       waterNearby:   null,   // first neighbor containerId adjacent to water (1 hop)
@@ -92,6 +100,22 @@ var Sense = {
       if (other.id === node.id || !otherAlive || otherCount <= 0) continue;
       var otherTmpl = TEMPLATES[other.templateId];
       var cat = otherTmpl.category;
+
+      // Signals: scan knowledge tokens from virtual items
+      if (cat === 'signal' && other.traits.signal) {
+        var tokens = other.traits.signal.tokens;
+        for (var ti = 0; ti < tokens.length; ti++) {
+          var tokType = tokens[ti].type;
+          if (model.signals[tokType] !== undefined) model.signals[tokType]++;
+        }
+        continue;
+      }
+
+      // Allies: same species
+      if (other.templateId === node.templateId) {
+        if (isHere) model.allies.here += otherCount;
+        else model.allies.nearby += otherCount;
+      }
 
       // Food (plants/seeds I can eat)
       if (diet.eats.indexOf(cat) >= 0 && (cat === 'plant' || cat === 'seed')) {

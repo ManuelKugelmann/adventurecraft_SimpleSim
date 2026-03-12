@@ -2,75 +2,87 @@
 // Role definitions are pure data (future target for .acf format parsing).
 // Role engine matches conditions via sense model, dispatches to Effects engine.
 // No imperative action code — all actions defined in ACTION_DEFS (rules.js).
+//
+// Hard rules (L1 bio, L2 reflex) always execute — dying, hunger, thirst happen regardless.
+// Roles/plans are evaluated AFTER hard rules, choosing which voluntary action to take.
+// Plans are just plans — the default mechanism roles use to satisfy drives.
+// Each tick, all rules are re-evaluated by priority. If the winning rule's plan
+// is already running, it continues. Otherwise the old plan is abandoned.
+// Entities can't get stuck: biological drives (hunger, fatigue, etc.) naturally
+// preempt any plan whose drive is no longer the top priority.
 
 // === ROLE DEFINITIONS (DATA) ===
 // Each entry: { name, priority, when (conditions), action/plan }
 // Conditions: [field, op, value] — evaluated by evalRuleConditions()
 // Priority: 0-95 integer. Higher = more involuntary. >= URGENT_PRIORITY = whole group acts.
 // Matched rules sorted by priority desc; first match with highest priority wins.
-// Future .acf:
-//   role grazer [herbivore, L3] {
-//     flee:      when sense.threats.count > 0, do flee, priority = 90
-//     graze:     when hunger > 35 AND sense.food.here != null, do graze, priority = 40
-//   }
-
+//
+// Universal animal role: one role for all species.
+// Diet-driven sense model differentiates behavior automatically:
+// - Herbivores never see prey (diet.eats has no animal categories) → hunt/seekPrey never match
+// - Carnivores never see plant food (diet.eats has no plant/seed) → graze/seekFood never match
+// - Omnivores see both → both branches available, hunger thresholds determine priority
+// Threat detection: herbivores use threats (eatenBy), predators use biggerThreats (stronger hunters)
+// Signal awareness: flee-alarm triggers on danger signals from allies (social communication)
 var ROLE_DEFS = {
-  grazer: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.threats.count', '>', 0]],                          plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'graze',     priority: 40,
-      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',  priority: 35,
-      when: [['hunger', '>', 55]],                                     plan: 'findFood' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
-  ],
-  hunter: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',      priority: 45,
-      when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'seekPrey',  priority: 35,
-      when: [['hunger', '>', 45]],                                     plan: 'huntPrey' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
-  ],
-  forager: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',      priority: 45,
-      when: [['hunger', '>', 50], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'graze',     priority: 40,
-      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',  priority: 35,
-      when: [['hunger', '>', 50]],                                     plan: 'findFood' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
+  animal: [
+    // Urgent: flee from direct threats (things that eat me)
+    { name: 'flee',       priority: 90,
+      when: [['sense.threats.count', '>', 0]],                           plan: 'flee' },
+    // Urgent: flee from bigger predators (things stronger than me that eat my category)
+    { name: 'fleeStrong', priority: 88,
+      when: [['sense.biggerThreats.count', '>', 0]],                    plan: 'flee' },
+    // Social alarm: flee when allies signal danger nearby
+    { name: 'fleeAlarm',  priority: 85,
+      when: [['sense.self.social', '>', 0.3],
+             ['sense.signals.danger', '>', 0]],                          plan: 'flee' },
+    // Survival: seek water when thirsty
+    { name: 'seekWater',  priority: 60,
+      when: [['thirst', '>', 60]],                                       plan: 'findWater' },
+    // Hunting: attack prey here (only matches if diet includes animal categories)
+    { name: 'hunt',       priority: 45,
+      when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],      action: 'hunt' },
+    // Grazing: eat plants/seeds here (only matches if diet includes plant/seed)
+    { name: 'graze',      priority: 40,
+      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],      action: 'graze' },
+    // Seek prey in nearby regions
+    { name: 'seekPrey',   priority: 35,
+      when: [['hunger', '>', 45], ['sense.preyNearby', '!=', null]],     plan: 'huntPrey' },
+    // Seek plant food in nearby regions
+    { name: 'seekFood',   priority: 33,
+      when: [['hunger', '>', 50], ['sense.foodNearby', '!=', null]],     plan: 'findFood' },
+    // Recovery
+    { name: 'rest',       priority: 20,
+      when: [['energy', '<', 20]],                                       action: 'rest' },
+    // Default
+    { name: 'wander',     priority: 0,                                   action: 'wander' },
   ],
 };
 
 // === ROLE ENGINE (CODE) ===
 
 var Roles = {
+  // Evaluate drives each tick. Plans are not autonomous — they continue only
+  // if the originating drive still has highest priority.
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
-
-    if (agency.activePlan) {
-      Planner.executeStep(node);
-      return;
-    }
+    if (World.isMoving(node)) return;
 
     var sense = Sense.scan(node);
+    var roleDef = ROLE_DEFS[agency.activeRole];
+
+    // Re-evaluate drives even if plan is active
+    if (agency.activePlan && roleDef) {
+      var topRule = this._topMatch(roleDef, node.traits.vitals, sense, node.count, node);
+      if (topRule && topRule.plan === agency.activePlan.goal) {
+        Planner.executeStep(node);
+        return;
+      }
+      // Drive changed — abandon plan
+      agency.activePlan = null;
+    }
+
 
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
       this.evaluatePlaceholders(node, sense);
@@ -92,6 +104,22 @@ var Roles = {
       return (b.priority || 0) - (a.priority || 0);
     });
     return matches;
+  },
+
+  // Fast single-best-rule lookup for plan continuation check
+  _topMatch: function(roleDef, vitals, sense, count, node) {
+    var best = null;
+    var bestPri = -1;
+    for (var i = 0; i < roleDef.length; i++) {
+      var rule = roleDef[i];
+      var pri = rule.priority || 0;
+      if (pri <= bestPri) continue;
+      if (!rule.when || evalRuleConditions(rule.when, vitals, sense, count, node)) {
+        best = rule;
+        bestPri = pri;
+      }
+    }
+    return best;
   },
 
   _execRule: function(rule, node, sense) {
@@ -132,11 +160,24 @@ var Roles = {
       return;
     }
 
+    // Plan scoring: when two close-priority rules both have plans,
+    // use intelligence-gated scoring to pick the better plan.
+    if (secondary && primary.plan && secondary.plan &&
+        (primary.priority || 0) - (secondary.priority || 0) <= 15) {
+      var scoreA = Planner.scorePlan(primary.plan, node, sense);
+      var scoreB = Planner.scorePlan(secondary.plan, node, sense);
+      if (scoreB > scoreA) {
+        var tmp = primary;
+        primary = secondary;
+        secondary = tmp;
+      }
+    }
+
     this._execRule(primary, node, sense);
 
     agency.actionSpread = {};
     if (secondary) {
-      var pFrac = 0.75 + Math.random() * 0.1;
+      var pFrac = 0.75 + Rng.random() * 0.1;
       agency.actionSpread[primary.name] = Math.round(node.count * pFrac);
       agency.actionSpread[secondary.name] = node.count - agency.actionSpread[primary.name];
     } else {
@@ -181,18 +222,21 @@ var Roles = {
     var v = node.traits.vitals;
     var actionTally = {};
 
+    // Sort rules by priority desc
+    var sortedRules = roleDef.slice().sort(function(a, b) {
+      return (b.priority || 0) - (a.priority || 0);
+    });
+
     for (var p = 0; p < node.count; p++) {
       var jv = {
-        hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
-        energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
+        hunger: clamp(v.hunger + (Rng.random() - 0.5) * 12, 0, 100),
+        energy: clamp(v.energy + (Rng.random() - 0.5) * 10, 0, 100),
       };
-      if (v.health !== undefined) jv.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
-      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
+      if (v.health !== undefined) jv.health = clamp(v.health + (Rng.random() - 0.5) * 8, 0, 100);
+      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Rng.random() - 0.5) * 8, 0, 100);
 
-      // Pass null for node to prevent snapshot overriding jittered vitals/count.
-      // Role conditions only use vitals and sense fields, not category/templateId.
-      for (var i = 0; i < roleDef.length; i++) {
-        var rule = roleDef[i];
+      for (var i = 0; i < sortedRules.length; i++) {
+        var rule = sortedRules[i];
         if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, null)) {
           actionTally[rule.name] = (actionTally[rule.name] || 0) + 1;
           break;
@@ -217,6 +261,8 @@ var Roles = {
       return;
     }
 
+    // Split minority actions into separate nodes (bounded by role rule count, max ~6).
+    // New nodes are NOT in the actors array, so they won't be double-evaluated this tick.
     for (var k = 0; k < keys.length; k++) {
       if (keys[k] === majorAction) continue;
       var splitCount = actionTally[keys[k]];
@@ -230,10 +276,10 @@ var Roles = {
       newNode.center.y = node.center.y;
       if (node.traits.vitals) {
         var sv = node.traits.vitals;
-        newNode.traits.vitals.hunger = clamp(sv.hunger + (Math.random() - 0.5) * 3, 0, 100);
-        newNode.traits.vitals.energy = clamp(sv.energy + (Math.random() - 0.5) * 3, 0, 100);
-        if (sv.health !== undefined) newNode.traits.vitals.health = clamp(sv.health + (Math.random() - 0.5) * 3, 0, 100);
-        if (sv.thirst !== undefined) newNode.traits.vitals.thirst = clamp(sv.thirst + (Math.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.hunger = clamp(sv.hunger + (Rng.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.energy = clamp(sv.energy + (Rng.random() - 0.5) * 3, 0, 100);
+        if (sv.health !== undefined) newNode.traits.vitals.health = clamp(sv.health + (Rng.random() - 0.5) * 3, 0, 100);
+        if (sv.thirst !== undefined) newNode.traits.vitals.thirst = clamp(sv.thirst + (Rng.random() - 0.5) * 3, 0, 100);
       }
       computeSpread(newNode);
       World.nodes.set(newNode.id, newNode);
@@ -265,7 +311,7 @@ function tryPickup(node) {
     var chance = 0;
     if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
     else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
-    if (chance > 0 && Math.random() < chance) {
+    if (chance > 0 && Rng.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
       if (amount >= other.count) {
         containItem(node, other);

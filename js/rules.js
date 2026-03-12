@@ -85,6 +85,12 @@ var BIO_RULE_DEFS = [
     prob: CONFIG.SEED_DROP_RATE,
     effects: [{ type: 'create', countRate: 0.05,
                 templateMap: { grass: 'grains' }, defaultTemplate: 'seeds' }] },
+
+  // --- Signal decay (virtual items: sounds, scents, tracks) ---
+  // count = ticks remaining; destroy 1/tick → dies naturally at 0
+  { name: 'signalDecay',
+    when: [['category', '==', 'signal']],
+    effects: [{ type: 'destroy', count: 1 }] },
 ];
 
 // === L2: REFLEX RULE DEFINITIONS — involuntary responses (DATA) ===
@@ -103,6 +109,14 @@ var REFLEX_RULE_DEFS = [
     effects: [{ type: 'birth', rate: CONFIG.BIRTH_RATE, min: 1 },
               { type: 'vital', target: 'hunger', op: 'add', amount: 12 },
               { type: 'vital', target: 'energy', op: 'sub', amount: 5 }] },
+
+  // Social alarm: emit danger signal when threats detected (involuntary for social animals)
+  { name: 'alarm',
+    when: [ANIMAL_COND,
+           ['sense.self.social', '>', 0.3],
+           ['sense.threats.count', '>', 0]],
+    effects: [{ type: 'signal', kind: 'sound', decay: 4,
+                tokens: [{ type: 'danger' }] }] },
 ];
 
 // === L3: ACTION DEFINITIONS — complete effect descriptions (DATA) ===
@@ -165,7 +179,7 @@ var Rules = {
       var rule = table[i];
       if (rule.requires && v[rule.requires] === undefined) continue;
       if (rule.when && !evalRuleConditions(rule.when, v, sense, node.count, node)) continue;
-      if (rule.prob !== undefined && Math.random() >= rule.prob) continue;
+      if (rule.prob !== undefined && Rng.random() >= rule.prob) continue;
       Effects.applyEffects(rule.effects, node, sense);
     }
   },
@@ -206,8 +220,32 @@ var Effects = {
       case 'move':    return this._move(effect, node, sense);
       case 'grow':    return this._grow(effect, node);
       case 'create':  return this._create(effect, node);
+      case 'signal':  return this._signal(effect, node);
       default:        return null;
     }
+  },
+
+  // --- Signal effect handler ---
+  // Creates a virtual item node carrying knowledge tokens.
+  // count = decay ticks (destroyed 1/tick by bio rule signalDecay).
+  // Generalized: used for sounds, scents, tracks, knowledge, contracts, etc.
+  _signal: function(effect, node) {
+    var sig = createNode('signal');
+    sig.count = effect.decay || 3;
+    sig.container = node.container;
+    sig.parent = node.container;
+    sig.center.x = node.center.x;
+    sig.center.y = node.center.y;
+    sig.traits.signal = {
+      kind: effect.kind || 'sound',
+      tokens: effect.tokens || [],
+      emitter: node.id,
+      emitterSpecies: node.templateId
+    };
+    World.nodes.set(sig.id, sig);
+    if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
+    World.byGroup.get(node.container).add(sig.id);
+    return null;
   },
 
   // --- Effect type handlers ---
@@ -263,7 +301,7 @@ var Effects = {
 
     var expectedKills = node.count * effect.killRate * ratio;
     var variance = expectedKills * 0.2;
-    var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
+    var killed = Math.round(expectedKills + (Rng.random() - 0.5) * variance);
     killed = Math.max(0, Math.min(killed, preyCount));
 
     // Write to live node (may go negative; post-layer clamp handles it)
@@ -287,7 +325,7 @@ var Effects = {
     if (sense.stones.slowed) {
       var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
                        (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
-      if (Math.random() < slowChance) return { status: 'slowed', label: 'slowed-stones' };
+      if (Rng.random() < slowChance) return { status: 'slowed', label: 'slowed-stones' };
     }
 
     if (effect.pickup) tryPickup(node);
@@ -332,7 +370,7 @@ var Effects = {
         }
         if (filtered.length > 0) candidates = filtered;
       }
-      return candidates[Math.floor(Math.random() * candidates.length)];
+      return candidates[Math.floor(Rng.random() * candidates.length)];
     }
     if (destination === 'away_threats') {
       return this._awayFromThreats(node, sense);

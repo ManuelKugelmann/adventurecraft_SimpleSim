@@ -39,10 +39,14 @@ var Groups = {
             continue;
           }
 
-          // Agents/plants: merge if hunger difference within threshold and result fits maxSize
+          // Agents/plants: merge if vital differences within threshold and result fits maxSize
           var va = a.traits.vitals, vb = b.traits.vitals;
-          if (Math.abs(va.hunger - vb.hunger) < gt.mergeThreshold &&
-              a.count + b.count <= gt.maxSize) {
+          var thr = gt.mergeThreshold;
+          var vitalsClose = Math.abs(va.hunger - vb.hunger) < thr &&
+              Math.abs(va.energy - vb.energy) < thr &&
+              (va.health === undefined || vb.health === undefined || Math.abs(va.health - vb.health) < thr) &&
+              (va.thirst === undefined || vb.thirst === undefined || Math.abs(va.thirst - vb.thirst) < thr);
+          if (vitalsClose && a.count + b.count <= gt.maxSize) {
             var totalCount = a.count + b.count;
             va.hunger = (va.hunger * a.count + vb.hunger * b.count) / totalCount;
             va.energy = (va.energy * a.count + vb.energy * b.count) / totalCount;
@@ -100,6 +104,7 @@ var Groups = {
       newNode.container = targetGroup;
       newNode.parent = targetGroup;
       var group = World.groups.get(targetGroup);
+      if (!group) continue;
       newNode.center.x = group.center.x;
       newNode.center.y = group.center.y;
       computeSpread(newNode);
@@ -107,10 +112,10 @@ var Groups = {
       // Preserve vitals from parent with slight variation
       if (node.traits.vitals) {
         var nv = node.traits.vitals;
-        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Math.random() - 0.5) * 5);
-        newNode.traits.vitals.energy = clampVital(nv.energy + (Math.random() - 0.5) * 5);
-        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Math.random() - 0.5) * 3);
-        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Math.random() - 0.5) * 3);
+        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Rng.random() - 0.5) * 5);
+        newNode.traits.vitals.energy = clampVital(nv.energy + (Rng.random() - 0.5) * 5);
+        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Rng.random() - 0.5) * 3);
+        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Rng.random() - 0.5) * 3);
       }
 
       // Preserve agency role from parent
