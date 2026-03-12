@@ -65,12 +65,41 @@ var Roles = {
     var agency = node.traits.agency;
     if (!agency) return;
 
+    var sense = Sense.scan(node);
+
+    // Always re-evaluate drives — plans are just plans, execution checks priority each tick
     if (agency.activePlan) {
-      Planner.executeStep(node);
-      return;
+      var roleDef = ROLE_DEFS[agency.activeRole];
+      if (roleDef) {
+        var matches = this._matchRules(roleDef, node.traits.vitals, sense, node.count, node);
+        var topRule = matches.length > 0 ? matches[0] : null;
+
+        // Find the rule that originated this plan
+        var planRule = this._findRuleByPlan(roleDef, agency.activePlan.goal);
+        var planPriority = planRule ? (planRule.priority || 0) : -1;
+
+        // Check if plan's drive still matches
+        var planDriveActive = planRule && (!planRule.when ||
+          evalRuleConditions(planRule.when, node.traits.vitals, sense, node.count, node));
+
+        if (!planDriveActive) {
+          // Drive gone (e.g., hunger sated) — abandon plan
+          agency.activePlan = null;
+        } else if (topRule && topRule !== planRule && (topRule.priority || 0) > planPriority) {
+          // Higher-priority drive preempts (e.g., threat appeared)
+          agency.activePlan = null;
+        } else {
+          // Plan's drive still valid and has priority — continue
+          if (!World.isMoving(node)) {
+            Planner.executeStep(node);
+          }
+          return;
+        }
+      }
     }
 
-    var sense = Sense.scan(node);
+    // Not mid-movement for new actions (moving entities only get plan preemption above)
+    if (World.isMoving(node)) return;
 
     if (node.count <= CONFIG.PLACEHOLDER_MAX) {
       this.evaluatePlaceholders(node, sense);
@@ -109,6 +138,13 @@ var Roles = {
     return null;
   },
 
+  _findRuleByPlan: function(roleDef, planGoal) {
+    for (var i = 0; i < roleDef.length; i++) {
+      if (roleDef[i].plan === planGoal) return roleDef[i];
+    }
+    return null;
+  },
+
   evaluateCompound: function(node, sense) {
     var agency = node.traits.agency;
     var roleDef = ROLE_DEFS[agency.activeRole];
@@ -136,7 +172,7 @@ var Roles = {
 
     agency.actionSpread = {};
     if (secondary) {
-      var pFrac = 0.75 + Math.random() * 0.1;
+      var pFrac = 0.75 + Rng.random() * 0.1;
       agency.actionSpread[primary.name] = Math.round(node.count * pFrac);
       agency.actionSpread[secondary.name] = node.count - agency.actionSpread[primary.name];
     } else {
@@ -188,11 +224,11 @@ var Roles = {
 
     for (var p = 0; p < node.count; p++) {
       var jv = {
-        hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
-        energy: clamp(v.energy + (Math.random() - 0.5) * 10, 0, 100),
+        hunger: clamp(v.hunger + (Rng.random() - 0.5) * 12, 0, 100),
+        energy: clamp(v.energy + (Rng.random() - 0.5) * 10, 0, 100),
       };
-      if (v.health !== undefined) jv.health = clamp(v.health + (Math.random() - 0.5) * 8, 0, 100);
-      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Math.random() - 0.5) * 8, 0, 100);
+      if (v.health !== undefined) jv.health = clamp(v.health + (Rng.random() - 0.5) * 8, 0, 100);
+      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Rng.random() - 0.5) * 8, 0, 100);
 
       // Pass null for node to prevent snapshot overriding jittered vitals/count.
       // Role conditions only use vitals and sense fields, not category/templateId.
@@ -238,10 +274,10 @@ var Roles = {
       newNode.center.y = node.center.y;
       if (node.traits.vitals) {
         var sv = node.traits.vitals;
-        newNode.traits.vitals.hunger = clamp(sv.hunger + (Math.random() - 0.5) * 3, 0, 100);
-        newNode.traits.vitals.energy = clamp(sv.energy + (Math.random() - 0.5) * 3, 0, 100);
-        if (sv.health !== undefined) newNode.traits.vitals.health = clamp(sv.health + (Math.random() - 0.5) * 3, 0, 100);
-        if (sv.thirst !== undefined) newNode.traits.vitals.thirst = clamp(sv.thirst + (Math.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.hunger = clamp(sv.hunger + (Rng.random() - 0.5) * 3, 0, 100);
+        newNode.traits.vitals.energy = clamp(sv.energy + (Rng.random() - 0.5) * 3, 0, 100);
+        if (sv.health !== undefined) newNode.traits.vitals.health = clamp(sv.health + (Rng.random() - 0.5) * 3, 0, 100);
+        if (sv.thirst !== undefined) newNode.traits.vitals.thirst = clamp(sv.thirst + (Rng.random() - 0.5) * 3, 0, 100);
       }
       computeSpread(newNode);
       World.nodes.set(newNode.id, newNode);
@@ -273,7 +309,7 @@ function tryPickup(node) {
     var chance = 0;
     if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
     else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
-    if (chance > 0 && Math.random() < chance) {
+    if (chance > 0 && Rng.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
       if (amount >= other.count) {
         containItem(node, other);

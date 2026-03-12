@@ -46,7 +46,7 @@ var World = {
       tile.type = 'grass';
       tile.center.x = i % w;
       tile.center.y = Math.floor(i / w);
-      tile.fertility = 0.5 + Math.random() * 0.5;
+      tile.fertility = 0.5 + Rng.random() * 0.5;
       this.tiles[i] = tile;
       this.nodes.set(tile.id, tile);
       this.groupOfTile[i] = -1;
@@ -546,7 +546,7 @@ var World = {
       var placed = 0;
       visited.add(sx + ',' + sy);
       while (queue.length > 0 && placed < maxSize) {
-        var ri = Math.floor(Math.random() * queue.length);
+        var ri = Math.floor(Rng.random() * queue.length);
         var pos = queue.splice(ri, 1)[0];
         var px = pos[0], py = pos[1];
         var tile = self.tileAt(px, py);
@@ -561,7 +561,7 @@ var World = {
           var key = nx + ',' + ny;
           if (nx >= 1 && nx < self.width - 1 && ny >= 1 && ny < self.height - 1 && !visited.has(key)) {
             visited.add(key);
-            if (Math.random() < 0.7) queue.push([nx, ny]);
+            if (Rng.random() < 0.7) queue.push([nx, ny]);
           }
         }
       }
@@ -569,14 +569,14 @@ var World = {
 
     // Water blobs
     for (var w = 0; w < CONFIG.WATER_BLOBS; w++) {
-      floodBlob(5 + Math.floor(Math.random() * (this.width - 10)),
-                5 + Math.floor(Math.random() * (this.height - 10)),
+      floodBlob(5 + Math.floor(Rng.random() * (this.width - 10)),
+                5 + Math.floor(Rng.random() * (this.height - 10)),
                 'water', CONFIG.WATER_BLOB_SIZE);
     }
     // Rock clusters
     for (var r = 0; r < CONFIG.ROCK_CLUSTERS; r++) {
-      floodBlob(5 + Math.floor(Math.random() * (this.width - 10)),
-                5 + Math.floor(Math.random() * (this.height - 10)),
+      floodBlob(5 + Math.floor(Rng.random() * (this.width - 10)),
+                5 + Math.floor(Rng.random() * (this.height - 10)),
                 'rock', CONFIG.ROCK_CLUSTER_SIZE);
     }
     // Ring water with dirt
@@ -589,7 +589,7 @@ var World = {
           if (t && t.type === 'grass') {
             t.type = 'dirt';
             t.templateId = 'tile_dirt';
-            t.fertility = 0.3 + Math.random() * 0.2;
+            t.fertility = 0.3 + Rng.random() * 0.2;
           }
         }
       }
@@ -746,7 +746,7 @@ var World = {
     // Shuffle for variety
     var shuffled = prevIds.slice();
     for (var i = shuffled.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
+      var j = Math.floor(Rng.random() * (i + 1));
       var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
     }
 
@@ -870,20 +870,20 @@ var World = {
     for (var i = 0; i < walkableGroups.length; i++) {
       var gId = walkableGroups[i];
       this.spawnGroup('grass', gId);
-      if (Math.random() < 0.5) this.spawnGroup('bush', gId);
-      if (Math.random() < 0.25) this.spawnGroup('tree', gId);
+      if (Rng.random() < 0.5) this.spawnGroup('bush', gId);
+      if (Rng.random() < 0.25) this.spawnGroup('tree', gId);
     }
 
     // Animals: spread across random walkable groups
     function spawnGroups(templateId, count) {
       for (var j = 0; j < count; j++) {
-        var gId = walkableGroups[Math.floor(Math.random() * walkableGroups.length)];
+        var gId = walkableGroups[Math.floor(Rng.random() * walkableGroups.length)];
         var node = self.spawnGroup(templateId, gId);
         if (node.traits.vitals) {
-          node.traits.vitals.hunger = 10 + Math.random() * 25;
-          node.traits.vitals.energy = 60 + Math.random() * 30;
-          if (node.traits.vitals.health !== undefined) node.traits.vitals.health = 80 + Math.random() * 20;
-          if (node.traits.vitals.thirst !== undefined) node.traits.vitals.thirst = 5 + Math.random() * 15;
+          node.traits.vitals.hunger = 10 + Rng.random() * 25;
+          node.traits.vitals.energy = 60 + Rng.random() * 30;
+          if (node.traits.vitals.health !== undefined) node.traits.vitals.health = 80 + Rng.random() * 20;
+          if (node.traits.vitals.thirst !== undefined) node.traits.vitals.thirst = 5 + Rng.random() * 15;
         }
       }
     }

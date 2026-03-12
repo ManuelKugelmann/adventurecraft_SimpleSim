@@ -1,4 +1,9 @@
 // planner.js — Multi-step plan definitions (data) + planner engine (code)
+// Plans are just plans — not autonomous state machines. Each tick, Roles.evaluate
+// re-checks drive priorities. If the plan's originating drive still has priority,
+// the planner continues the next step. If a higher-priority drive fires or the
+// plan's drive is no longer active, the plan is abandoned (preempted by drives).
+// No explicit timeout needed — hunger, fatigue, threats naturally preempt stuck plans.
 // Plan definitions are pure data: step sequences with typed instructions.
 // Planner engine interprets step types generically via Effects engine.
 // All effects (movement, costs) are declared inline as data.
@@ -83,7 +88,7 @@ var Planner = {
       }
     }
 
-    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0, waitTicks: 0 };
+    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0 };
     this.executeStep(node);
   },
 
@@ -129,40 +134,9 @@ var Planner = {
         break;
 
       case 'wait':
-        if (World.isMoving(node)) {
-          plan.waitTicks++;
-          // Hard cap: abandon plan after 999 ticks of waiting
-          if (plan.waitTicks >= 999) {
-            agency.activePlan = null;
-            agency.lastAction = plan.goal + '-timeout';
-          }
-          // Drive interruption: re-scan and check if a higher-priority drive
-          // now demands action (e.g., new threat appeared while moving)
-          if (plan.waitTicks > 0 && plan.waitTicks % 3 === 0) {
-            var roleDef = ROLE_DEFS[agency.activeRole];
-            if (roleDef) {
-              var waitSense = Sense.scan(node);
-              var planRule = null;
-              for (var ri = 0; ri < roleDef.length; ri++) {
-                if (roleDef[ri].plan === plan.goal || roleDef[ri].action === plan.goal) {
-                  planRule = roleDef[ri]; break;
-                }
-              }
-              var planPriority = planRule ? (planRule.priority || 0) : 0;
-              for (var ri = 0; ri < roleDef.length; ri++) {
-                var r = roleDef[ri];
-                if ((r.priority || 0) <= planPriority) continue;
-                if (!r.when || evalRuleConditions(r.when, node.traits.vitals, waitSense, node.count, node)) {
-                  agency.activePlan = null;
-                  agency.lastAction = plan.goal + '-interrupted';
-                  return;
-                }
-              }
-            }
-          }
-          return;
-        }
-        plan.waitTicks = 0;
+        // Wait for movement to finish. Drive preemption is handled by
+        // Roles.evaluate which re-checks priorities each tick before calling us.
+        if (World.isMoving(node)) return;
         this._advance(plan, agency);
         if (agency.activePlan) this.executeStep(node);
         break;

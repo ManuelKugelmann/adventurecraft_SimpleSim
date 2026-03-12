@@ -104,7 +104,7 @@ var Simulation = {
     });
 
     for (var i = 0; i < actors.length; i++) {
-      if (actors[i].alive && !World.isMoving(actors[i])) {
+      if (actors[i].alive) {
         Roles.evaluate(actors[i]);
       }
     }

@@ -8,6 +8,7 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 function initWorld() {
+  Rng.seed(CONFIG.RNG_SEED);
   World.init(CONFIG.GRID_WIDTH, CONFIG.GRID_HEIGHT);
   World.populate();
 }

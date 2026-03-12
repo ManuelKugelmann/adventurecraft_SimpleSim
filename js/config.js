@@ -1,7 +1,20 @@
 // config.js — Templates, constants, tuning knobs
 // Multiscale hierarchy simulation
 
+// === Seeded PRNG (mulberry32) — deterministic, reproducible sim ===
+var Rng = {
+  _state: 12345,
+  seed: function(s) { this._state = s | 0 || 1; },
+  random: function() {
+    var t = this._state += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+};
+
 var CONFIG = {
+  RNG_SEED: 12345,
   GRID_WIDTH: 80,
   GRID_HEIGHT: 80,
   TICK_MS: 200,

@@ -112,10 +112,10 @@ var Groups = {
       // Preserve vitals from parent with slight variation
       if (node.traits.vitals) {
         var nv = node.traits.vitals;
-        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Math.random() - 0.5) * 5);
-        newNode.traits.vitals.energy = clampVital(nv.energy + (Math.random() - 0.5) * 5);
-        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Math.random() - 0.5) * 3);
-        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Math.random() - 0.5) * 3);
+        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Rng.random() - 0.5) * 5);
+        newNode.traits.vitals.energy = clampVital(nv.energy + (Rng.random() - 0.5) * 5);
+        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Rng.random() - 0.5) * 3);
+        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Rng.random() - 0.5) * 3);
       }
 
       // Preserve agency role from parent

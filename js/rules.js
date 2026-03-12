@@ -165,7 +165,7 @@ var Rules = {
       var rule = table[i];
       if (rule.requires && v[rule.requires] === undefined) continue;
       if (rule.when && !evalRuleConditions(rule.when, v, sense, node.count, node)) continue;
-      if (rule.prob !== undefined && Math.random() >= rule.prob) continue;
+      if (rule.prob !== undefined && Rng.random() >= rule.prob) continue;
       Effects.applyEffects(rule.effects, node, sense);
     }
   },
@@ -263,7 +263,7 @@ var Effects = {
 
     var expectedKills = node.count * effect.killRate * ratio;
     var variance = expectedKills * 0.2;
-    var killed = Math.round(expectedKills + (Math.random() - 0.5) * variance);
+    var killed = Math.round(expectedKills + (Rng.random() - 0.5) * variance);
     killed = Math.max(0, Math.min(killed, preyCount));
 
     // Write to live node (may go negative; post-layer clamp handles it)
@@ -287,7 +287,7 @@ var Effects = {
     if (sense.stones.slowed) {
       var slowChance = (sense.stones.density - CONFIG.STONE_SLOW_PER_TILE) /
                        (CONFIG.STONE_BLOCK_PER_TILE - CONFIG.STONE_SLOW_PER_TILE);
-      if (Math.random() < slowChance) return { status: 'slowed', label: 'slowed-stones' };
+      if (Rng.random() < slowChance) return { status: 'slowed', label: 'slowed-stones' };
     }
 
     if (effect.pickup) tryPickup(node);
@@ -332,7 +332,7 @@ var Effects = {
         }
         if (filtered.length > 0) candidates = filtered;
       }
-      return candidates[Math.floor(Math.random() * candidates.length)];
+      return candidates[Math.floor(Rng.random() * candidates.length)];
     }
     if (destination === 'away_threats') {
       return this._awayFromThreats(node, sense);
