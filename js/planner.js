@@ -27,6 +27,12 @@
 //     }
 //   }
 
+// Plan commitment: active plans get a priority bonus that decays over time.
+// Prevents oscillation between two close-priority drives.
+// CONFIG.PLAN_COMMITMENT_BONUS: initial bonus added when plan starts
+// CONFIG.PLAN_COMMITMENT_DECAY: bonus decays by this much per tick
+// CONFIG.PLAN_SCORE_NOISE: random noise range added to plan scores (probabilistic choice)
+
 // Plan predicted effects: { vital: delta, ... } — estimated outcome per plan.
 // Used by scorePlan() to evaluate plan desirability before committing.
 // risk: 0-1 base danger level (modified by strength ratio at runtime).

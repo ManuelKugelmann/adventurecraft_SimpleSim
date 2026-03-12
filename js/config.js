@@ -87,6 +87,11 @@ var CONFIG = {
   // Role priority threshold: rules at or above this act as urgent (whole group in unison)
   URGENT_PRIORITY: 80,
 
+  // Plan commitment: active plans get a decaying priority bonus to prevent oscillation
+  PLAN_COMMITMENT_BONUS: 10, // initial priority bonus when a plan is selected
+  PLAN_COMMITMENT_DECAY: 2,  // bonus decays by this per tick
+  PLAN_SCORE_NOISE: 5,       // random noise range (±half) added to plan scores
+
   // Seeded PRNG
   RNG_SEED: 42,
 };
@@ -226,7 +231,7 @@ var TEMPLATES = {
       spatial: { speed: 3, intelligence: 1 },
       social: { gregarious: 0.6 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -244,7 +249,7 @@ var TEMPLATES = {
       spatial: { speed: 2, intelligence: 2 },
       social: { gregarious: 0.7 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -263,7 +268,7 @@ var TEMPLATES = {
       spatial: { speed: 1, intelligence: 2 },
       social: { gregarious: 0.5 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -281,7 +286,7 @@ var TEMPLATES = {
       spatial: { speed: 1, intelligence: 2 },
       social: { gregarious: 0.2 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 20 },
     },
   },
@@ -300,7 +305,7 @@ var TEMPLATES = {
       spatial: { speed: 3, intelligence: 2 },
       social: { gregarious: 0.3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 30 },
     },
   },
@@ -318,7 +323,7 @@ var TEMPLATES = {
       spatial: { speed: 2, intelligence: 3 },
       social: { gregarious: 0.8 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
       group: { mergeThreshold: 15, maxSize: 25 },
     },
   },

@@ -710,6 +710,7 @@ var Renderer = {
           target: ag.activePlan.target,
         };
       }
+      if (ag.commitmentBonus > 0) agencyView.commitment = ag.commitmentBonus;
       if (ag.actionSpread) agencyView.actionSpread = ag.actionSpread;
       html += this._buildSection('agency', agencyView);
     }
