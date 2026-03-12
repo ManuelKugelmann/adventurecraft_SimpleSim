@@ -328,6 +328,7 @@ var World = {
       }
 
       var speed = (node.traits.spatial ? node.traits.spatial.speed : 1);
+      speed *= carrySpeedFactor(node); // slow down when carrying heavy/bulky items
       var dist = self.groupDist(group, node.position.at, node.position.target);
       var step = speed / Math.max(1, dist);
       node.position.progress += step;

@@ -73,6 +73,68 @@ h1 {
   color: #a0a0c0;
 }
 
+/* Scenario description */
+#scenario-desc {
+  font-size: 11px;
+  color: #8888aa;
+  margin-bottom: 4px;
+  text-align: center;
+  font-style: italic;
+  max-width: 600px;
+}
+
+/* Spawn panel — per-species starting group count adjusters */
+#spawn-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  justify-content: center;
+  margin-bottom: 6px;
+  font-size: 11px;
+  max-width: 800px;
+}
+
+#spawn-panel .spawn-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+#spawn-panel .spawn-icon {
+  font-size: 12px;
+}
+
+#spawn-panel .spawn-name {
+  color: #a0a0b0;
+  min-width: 32px;
+}
+
+#spawn-panel .spawn-btn {
+  background: #2a2a4a;
+  color: #c0c0e0;
+  border: 1px solid #4a4a6a;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 2px;
+  font-family: inherit;
+}
+
+#spawn-panel .spawn-btn:hover {
+  background: #3a3a5a;
+}
+
+#spawn-panel .spawn-val {
+  color: #ccccee;
+  min-width: 16px;
+  text-align: center;
+}
+
 /* Stats bar */
 #stats {
   font-size: 13px;

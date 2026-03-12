@@ -46,3 +46,44 @@ function createNode(templateId) {
 function computeSpread(node) {
   node.spread = Math.max(1, Math.ceil(node.count / CONFIG.SPREAD_DENSITY));
 }
+
+// Compute total carried weight and bulk from contains[] list.
+// Returns { weight, bulk, maxWeight, maxBulk } where max is strength-based capacity.
+function carriedLoad(node) {
+  var totalWeight = 0;
+  var totalBulk = 0;
+  for (var i = 0; i < node.contains.length; i++) {
+    var item = World.nodes.get(node.contains[i]);
+    if (!item || !item.alive) continue;
+    var tmpl = TEMPLATES[item.templateId];
+    totalWeight += (tmpl.weight || 0) * item.count;
+    totalBulk += (tmpl.bulk || 0) * item.count;
+  }
+  var str = TEMPLATES[node.templateId].strength || 1;
+  return {
+    weight: totalWeight,
+    bulk: totalBulk,
+    maxWeight: str * CONFIG.CARRY_WEIGHT_PER_STR,
+    maxBulk: str * CONFIG.CARRY_BULK_PER_STR,
+  };
+}
+
+// Remaining capacity: how much more weight/bulk can this node carry?
+function remainingCapacity(node) {
+  var load = carriedLoad(node);
+  return {
+    weight: Math.max(0, load.maxWeight - load.weight),
+    bulk: Math.max(0, load.maxBulk - load.bulk),
+  };
+}
+
+// Speed factor from carried load: 1.0 = unencumbered, lower = slower.
+// Uses the more constrained of weight or bulk ratio.
+function carrySpeedFactor(node) {
+  if (node.contains.length === 0) return 1.0;
+  var load = carriedLoad(node);
+  var wRatio = load.maxWeight > 0 ? load.weight / load.maxWeight : 0;
+  var bRatio = load.maxBulk > 0 ? load.bulk / load.maxBulk : 0;
+  var ratio = Math.max(wRatio, bRatio);
+  return Math.max(0.1, 1.0 - ratio * CONFIG.CARRY_SPEED_PENALTY);
+}

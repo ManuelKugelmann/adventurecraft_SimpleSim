@@ -23,8 +23,13 @@
     </label>
     <span id="tick-display">Tick: <span id="tick-count">0</span></span>
     <button id="btn-reset">Reset</button>
+    <label>Scenario:
+      <select id="scenario-select"></select>
+    </label>
   </div>
 
+  <div id="scenario-desc"></div>
+  <div id="spawn-panel"></div>
   <div id="stats"></div>
   <div id="legend"></div>
   <div id="grid"></div>
@@ -32,6 +37,7 @@
 
   <!-- Scripts in dependency order: no modules, no build step -->
   <script src="js/config.js?v=98c554e"></script>
+  <script src="js/scenarios.js?v=98c554e"></script>
   <script src="js/node.js?v=98c554e"></script>
   <script src="js/world.js?v=98c554e"></script>
   <script src="js/snapshot.js?v=98c554e"></script>

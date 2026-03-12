@@ -63,7 +63,10 @@ var ROLE_DEFS = {
 
 var Roles = {
   // Evaluate drives each tick. Plans are not autonomous — they continue only
-  // if the originating drive still has highest priority.
+  // if the originating drive still has highest priority (with commitment bonus).
+  // Commitment bonus: active plans get a decaying priority boost to prevent
+  // oscillation between close-priority drives. Bonus starts at
+  // PLAN_COMMITMENT_BONUS and decays by PLAN_COMMITMENT_DECAY per tick.
   evaluate: function(node) {
     var agency = node.traits.agency;
     if (!agency) return;
@@ -72,15 +75,20 @@ var Roles = {
     var sense = Sense.scan(node);
     var roleDef = ROLE_DEFS[agency.activeRole];
 
-    // Re-evaluate drives even if plan is active
+    // Re-evaluate drives even if plan is active (with commitment bonus)
     if (agency.activePlan && roleDef) {
-      var topRule = this._topMatch(roleDef, node.traits.vitals, sense, node.count, node);
+      // Decay commitment bonus each tick
+      if (agency.commitmentBonus > 0) {
+        agency.commitmentBonus = Math.max(0, agency.commitmentBonus - CONFIG.PLAN_COMMITMENT_DECAY);
+      }
+      var topRule = this._topMatchWithCommitment(roleDef, node.traits.vitals, sense, node.count, node, agency);
       if (topRule && topRule.plan === agency.activePlan.goal) {
         Planner.executeStep(node);
         return;
       }
-      // Drive changed — abandon plan
+      // Drive changed — abandon plan, reset commitment
       agency.activePlan = null;
+      agency.commitmentBonus = 0;
     }
 
 
@@ -122,11 +130,37 @@ var Roles = {
     return best;
   },
 
+  // Like _topMatch but adds commitment bonus to the active plan's rule priority.
+  // Also adds probabilistic noise to all rule priorities (PLAN_SCORE_NOISE).
+  _topMatchWithCommitment: function(roleDef, vitals, sense, count, node, agency) {
+    var activePlanGoal = agency.activePlan ? agency.activePlan.goal : null;
+    var bonus = agency.commitmentBonus || 0;
+    var noise = CONFIG.PLAN_SCORE_NOISE;
+    var best = null;
+    var bestPri = -Infinity;
+    for (var i = 0; i < roleDef.length; i++) {
+      var rule = roleDef[i];
+      if (rule.when && !evalRuleConditions(rule.when, vitals, sense, count, node)) continue;
+      var pri = rule.priority || 0;
+      // Commitment bonus: boost the rule whose plan matches the active plan
+      if (rule.plan === activePlanGoal) pri += bonus;
+      // Probabilistic noise: prevents deterministic oscillation
+      pri += (Rng.random() - 0.5) * noise;
+      if (pri > bestPri) {
+        best = rule;
+        bestPri = pri;
+      }
+    }
+    return best;
+  },
+
   _execRule: function(rule, node, sense) {
     if (rule.action) {
       Effects.executeAction(rule.action, node, sense);
     } else if (rule.plan) {
       Planner.start(node, rule.plan);
+      // Set commitment bonus when a new plan is selected
+      node.traits.agency.commitmentBonus = CONFIG.PLAN_COMMITMENT_BONUS;
     }
   },
 
@@ -161,11 +195,12 @@ var Roles = {
     }
 
     // Plan scoring: when two close-priority rules both have plans,
-    // use intelligence-gated scoring to pick the better plan.
+    // use intelligence-gated scoring with probabilistic noise.
     if (secondary && primary.plan && secondary.plan &&
         (primary.priority || 0) - (secondary.priority || 0) <= 15) {
-      var scoreA = Planner.scorePlan(primary.plan, node, sense);
-      var scoreB = Planner.scorePlan(secondary.plan, node, sense);
+      var noise = CONFIG.PLAN_SCORE_NOISE;
+      var scoreA = Planner.scorePlan(primary.plan, node, sense) + (Rng.random() - 0.5) * noise;
+      var scoreB = Planner.scorePlan(secondary.plan, node, sense) + (Rng.random() - 0.5) * noise;
       if (scoreB > scoreA) {
         var tmp = primary;
         primary = secondary;
@@ -303,18 +338,31 @@ function clamp(val, lo, hi) { return val < lo ? lo : val > hi ? hi : val; }
 // === TRANSPORT HELPERS ===
 
 function tryPickup(node) {
+  var cap = remainingCapacity(node);
+  if (cap.weight <= 0 && cap.bulk <= 0) return; // already at capacity
+
   var groups = World.groupsInContainer(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (!other.alive || other.count <= 0 || other.containedBy) continue;
-    var cat = TEMPLATES[other.templateId].category;
+    var otherTmpl = TEMPLATES[other.templateId];
+    var cat = otherTmpl.category;
     var chance = 0;
     if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
     else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
     if (chance > 0 && Rng.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
+      // Clamp amount to remaining capacity (weight and bulk)
+      var perW = otherTmpl.weight || 0;
+      var perB = otherTmpl.bulk || 0;
+      if (perW > 0) amount = Math.min(amount, Math.floor(cap.weight / perW));
+      if (perB > 0) amount = Math.min(amount, Math.floor(cap.bulk / perB));
+      if (amount <= 0) continue; // can't fit any
+
       if (amount >= other.count) {
         containItem(node, other);
+        cap.weight -= perW * other.count;
+        cap.bulk -= perB * other.count;
       } else {
         other.count -= amount;
         var carried = createNode(other.templateId);
@@ -325,7 +373,10 @@ function tryPickup(node) {
         computeSpread(carried);
         World.nodes.set(carried.id, carried);
         containItem(node, carried);
+        cap.weight -= perW * amount;
+        cap.bulk -= perB * amount;
       }
+      if (cap.weight <= 0 && cap.bulk <= 0) return; // full
     }
   }
 }
