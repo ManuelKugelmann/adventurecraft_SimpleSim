@@ -73,6 +73,16 @@ h1 {
   color: #a0a0c0;
 }
 
+/* Scenario description */
+#scenario-desc {
+  font-size: 11px;
+  color: #8888aa;
+  margin-bottom: 4px;
+  text-align: center;
+  font-style: italic;
+  max-width: 600px;
+}
+
 /* Stats bar */
 #stats {
   font-size: 13px;
