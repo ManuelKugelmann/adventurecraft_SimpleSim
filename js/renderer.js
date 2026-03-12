@@ -530,10 +530,18 @@ var Renderer = {
     return parts.length > 0 ? parts.join(' ') : '<span class="insp-null">empty</span>';
   },
 
+  // Is this entity a "group sample" — container is above L1, no precise location
+  _isGroupSample: function(node) {
+    var group = World.groups.get(node.container);
+    return group && group.level > 1;
+  },
+
   // Build a compact entity line: symbol count (per-individual vitals)
   _entityLine: function(node) {
     var tmpl = TEMPLATES[node.templateId];
-    var line = '<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span> ' +
+    var isSample = this._isGroupSample(node);
+    var line = (isSample ? '<span class="insp-sample" title="group sample — no L1 position">~</span>' : '') +
+      '<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span> ' +
       node.templateId + ' <span class="insp-val">×' + Math.floor(node.count) + '</span>';
     if (node.traits.vitals) {
       var v = node.traits.vitals;
