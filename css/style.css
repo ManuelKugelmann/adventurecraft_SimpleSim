@@ -197,6 +197,23 @@ h1 {
   margin: 0 2px;
 }
 
+/* Sim container — side-by-side when viewport is wide enough */
+#sim-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+@media (min-width: 1340px) {
+  #sim-container {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+  }
+}
+
 /* Grid */
 #grid {
   display: grid;
@@ -205,6 +222,7 @@ h1 {
   font-size: 11px;
   border: 1px solid #333;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .cell {
@@ -222,12 +240,22 @@ h1 {
 
 /* Inspector */
 #inspector {
-  margin-top: 8px;
   font-size: 12px;
   color: #b0b0d0;
   min-height: 18px;
   max-width: 960px;
   width: 100%;
+}
+
+@media (min-width: 1340px) {
+  #inspector {
+    max-width: 360px;
+    min-width: 280px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    position: sticky;
+    top: 10px;
+  }
 }
 
 #inspector b {
@@ -269,6 +297,21 @@ h1 {
   flex-wrap: wrap;
   justify-content: center;
   margin-bottom: 6px;
+}
+
+@media (min-width: 1340px) {
+  #inspector .insp-hierarchy {
+    flex-direction: column;
+  }
+
+  #inspector .insp-level {
+    max-width: none;
+    max-height: none;
+  }
+
+  #inspector .insp-body {
+    flex-direction: column;
+  }
 }
 
 #inspector .insp-level {
@@ -336,6 +379,13 @@ h1 {
   background: #2a3a5a;
   border-radius: 2px;
   padding: 0 3px;
+}
+
+#inspector .insp-sample {
+  color: #886644;
+  font-size: 10px;
+  margin-right: 2px;
+  cursor: help;
 }
 
 /* Selected entity detail */
