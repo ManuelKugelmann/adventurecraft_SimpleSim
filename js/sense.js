@@ -25,6 +25,7 @@ var Sense = {
         social: node.traits.social ? node.traits.social.gregarious : 0,
         intelligence: node.traits.spatial ? node.traits.spatial.intelligence : 1,
         strength: tmpl.strength,
+        load: carriedLoad(node),                           // { weight, bulk, maxWeight, maxBulk }
       },
       foodNearby:    null,   // first neighbor containerId with food (1 hop)
       preyNearby:    null,   // first neighbor containerId with prey (1 hop)

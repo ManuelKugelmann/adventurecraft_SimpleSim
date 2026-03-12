@@ -72,6 +72,7 @@ js/planner.js       Planner + PLAN_DEFS — multi-step plans using sense model (
 js/groups.js        Groups — merge/split passes for nodes with group trait
 js/renderer.js      Renderer — ASCII grid, spread tinting, multi-level hierarchy borders, inspector
 js/simulation.js    Simulation — tick loop, layer execution order
+js/scenarios.js     SCENARIO_DEFS — toggleable test presets overriding CONFIG on reset
 ```
 
 ### Data / Code Separation — Rule Layers
@@ -178,15 +179,17 @@ Role evaluation is skipped while an entity is in transit.
 
 ### Template Categories
 
-- `terrain`: tile nodes (tile_grass, tile_water, tile_dirt, tile_rock)
-- `tilegroup`: hierarchy group nodes at all levels (L1 = same-type tile clusters, L2+ = recursive grouping)
-- `signal`: virtual items (sounds, scents, tracks, knowledge, contracts) — generalized data carriers
-- `plant`: grass, bush, tree (have vitals, group trait, no agency)
-- `seed`: grains, seeds (edible bulk items, no vitals)
-- `item`: stone (inert bulk, blocks movement at density)
-- `herbivore`: rabbit, deer (unified 'animal' role, social trait)
-- `omnivore`: pig, bear (unified 'animal' role, social trait)
-- `carnivore`: fox, wolf (unified 'animal' role, social trait)
+All templates define `weight` (heaviness per unit) and `bulk` (volume per unit) for the transport system.
+
+- `terrain`: tile nodes (tile_grass, tile_water, tile_dirt, tile_rock) — w:0 b:0
+- `tilegroup`: hierarchy group nodes at all levels — w:0 b:0
+- `signal`: virtual items (sounds, scents, tracks, knowledge, contracts) — w:0 b:0
+- `plant`: grass (w:0.1 b:0.2), bush (w:0.2 b:0.3), tree (w:0.5 b:0.5) — have vitals, group trait, no agency
+- `seed`: grains (w:0.3 b:0.2), seeds (w:0.2 b:0.15) — edible bulk items, no vitals
+- `item`: stone (w:3.0 b:2.0) — inert bulk, blocks movement at density
+- `herbivore`: rabbit (str:1 w:1.0 b:0.8), deer (str:2 w:4.0 b:3.0) — unified 'animal' role, social trait
+- `omnivore`: pig (str:2 w:5.0 b:3.5), bear (str:6 w:10.0 b:6.0) — unified 'animal' role, social trait
+- `carnivore`: fox (str:3 w:3.0 b:2.0), wolf (str:5 w:6.0 b:3.5) — unified 'animal' role, social trait
 
 ### Execution Order (per tick)
 
@@ -222,6 +225,20 @@ Matched rules are sorted by priority descending. Rules at or above
 
 Animals pick up seeds/stones when moving (`tryPickup`), carry them via `contains`/`containedBy`,
 and drop them in the new group (`dropContained`). Stones create movement penalties at high density.
+
+#### Weight & Bulk Capacity
+
+Every template defines `weight` and `bulk` per unit count. Carrying capacity is strength-based:
+- `maxWeight = strength * CONFIG.CARRY_WEIGHT_PER_STR` (default 5 per str)
+- `maxBulk = strength * CONFIG.CARRY_BULK_PER_STR` (default 4 per str)
+
+Pickup (`tryPickup`) clamps amount to remaining weight and bulk capacity.
+Movement speed is reduced by carried load via `carrySpeedFactor()`:
+- `speedFactor = 1 - max(weightRatio, bulkRatio) * CONFIG.CARRY_SPEED_PENALTY`
+- Minimum speed factor: 0.1 (never fully immobilized by cargo)
+
+Helper functions in node.js: `carriedLoad(node)`, `remainingCapacity(node)`, `carrySpeedFactor(node)`.
+Sense model exposes `sense.self.load` with current weight/bulk/max values.
 
 ### Signals — Generalized Virtual Items
 

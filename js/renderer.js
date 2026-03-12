@@ -732,6 +732,16 @@ var Renderer = {
       html += this._buildSection('spatial', n.traits.spatial);
     }
 
+    // Carry load
+    if (n.contains && n.contains.length > 0) {
+      var load = carriedLoad(n);
+      html += this._buildSection('carry', {
+        weight: load.weight.toFixed(1) + ' / ' + load.maxWeight.toFixed(1),
+        bulk: load.bulk.toFixed(1) + ' / ' + load.maxBulk.toFixed(1),
+        speedFactor: carrySpeedFactor(n).toFixed(2),
+      });
+    }
+
     // Social
     if (n.traits.social) {
       html += this._buildSection('social', n.traits.social);

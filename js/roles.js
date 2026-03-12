@@ -303,18 +303,31 @@ function clamp(val, lo, hi) { return val < lo ? lo : val > hi ? hi : val; }
 // === TRANSPORT HELPERS ===
 
 function tryPickup(node) {
+  var cap = remainingCapacity(node);
+  if (cap.weight <= 0 && cap.bulk <= 0) return; // already at capacity
+
   var groups = World.groupsInContainer(node.container);
   for (var i = 0; i < groups.length; i++) {
     var other = groups[i];
     if (!other.alive || other.count <= 0 || other.containedBy) continue;
-    var cat = TEMPLATES[other.templateId].category;
+    var otherTmpl = TEMPLATES[other.templateId];
+    var cat = otherTmpl.category;
     var chance = 0;
     if (cat === 'seed') chance = CONFIG.CARRY_SEED_CHANCE;
     else if (cat === 'item') chance = CONFIG.CARRY_STONE_CHANCE;
     if (chance > 0 && Rng.random() < chance) {
       var amount = Math.max(1, Math.floor(other.count * CONFIG.CARRY_FRACTION));
+      // Clamp amount to remaining capacity (weight and bulk)
+      var perW = otherTmpl.weight || 0;
+      var perB = otherTmpl.bulk || 0;
+      if (perW > 0) amount = Math.min(amount, Math.floor(cap.weight / perW));
+      if (perB > 0) amount = Math.min(amount, Math.floor(cap.bulk / perB));
+      if (amount <= 0) continue; // can't fit any
+
       if (amount >= other.count) {
         containItem(node, other);
+        cap.weight -= perW * other.count;
+        cap.bulk -= perB * other.count;
       } else {
         other.count -= amount;
         var carried = createNode(other.templateId);
@@ -325,7 +338,10 @@ function tryPickup(node) {
         computeSpread(carried);
         World.nodes.set(carried.id, carried);
         containItem(node, carried);
+        cap.weight -= perW * amount;
+        cap.bulk -= perB * amount;
       }
+      if (cap.weight <= 0 && cap.bulk <= 0) return; // full
     }
   }
 }

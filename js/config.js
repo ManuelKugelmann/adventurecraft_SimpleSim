@@ -72,6 +72,11 @@ var CONFIG = {
   CARRY_STONE_CHANCE: 0.15,  // probability of picking up stones when moving
   CARRY_FRACTION: 0.1,       // fraction of item count carried per trip
 
+  // Carrying capacity (strength-based)
+  CARRY_WEIGHT_PER_STR: 5,   // max carried weight = strength * this
+  CARRY_BULK_PER_STR: 4,     // max carried bulk = strength * this
+  CARRY_SPEED_PENALTY: 0.5,  // speed multiplier lost at full load (1.0 = halved at max)
+
   // Stones: movement penalty when dense in a group
   STONE_SLOW_PER_TILE: 3,    // stones per tile before slowdown begins
   STONE_BLOCK_PER_TILE: 8,   // stones per tile = impassable
@@ -95,13 +100,14 @@ var TILE_TYPES = {
 
 var TEMPLATES = {
   // --- Terrain (tile nodes, structural — parented to regions) ---
-  tile_grass: { category: 'terrain', symbol: '·', color: '#4a7c3f', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
-  tile_water: { category: 'terrain', symbol: '~', color: '#3a6ea5', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
-  tile_dirt:  { category: 'terrain', symbol: ',', color: '#8b7355', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
-  tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, traits: {} },
+  tile_grass: { category: 'terrain', symbol: '·', color: '#4a7c3f', renderPriority: -1, defaultCount: 1, strength: 0, weight: 0, bulk: 0, traits: {} },
+  tile_water: { category: 'terrain', symbol: '~', color: '#3a6ea5', renderPriority: -1, defaultCount: 1, strength: 0, weight: 0, bulk: 0, traits: {} },
+  tile_dirt:  { category: 'terrain', symbol: ',', color: '#8b7355', renderPriority: -1, defaultCount: 1, strength: 0, weight: 0, bulk: 0, traits: {} },
+  tile_rock:  { category: 'terrain', symbol: '░', color: '#707070', renderPriority: -1, defaultCount: 1, strength: 0, weight: 0, bulk: 0, traits: {} },
   // --- Structural containers (grouping hierarchy, all levels) ---
-  tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, traits: {} },
+  tilegroup: { category: 'tilegroup', symbol: 'G', color: '#888', renderPriority: -2, defaultCount: 1, strength: 0, weight: 0, bulk: 0, traits: {} },
   // --- Plants (group trait for merge/split) ---
+  // weight/bulk: per unit count. Total = weight * count when carried.
   grass: {
     category: 'plant',
     symbol: '♣',
@@ -109,6 +115,8 @@ var TEMPLATES = {
     renderPriority: 0,
     defaultCount: 20,
     strength: 0,
+    weight: 0.1,
+    bulk: 0.2,
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
@@ -122,6 +130,8 @@ var TEMPLATES = {
     renderPriority: 1,
     defaultCount: 12,
     strength: 0,
+    weight: 0.2,
+    bulk: 0.3,
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
@@ -135,6 +145,8 @@ var TEMPLATES = {
     renderPriority: 2,
     defaultCount: 5,
     strength: 0,
+    weight: 0.5,
+    bulk: 0.5,
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore'] },
@@ -149,6 +161,8 @@ var TEMPLATES = {
     renderPriority: 3,
     defaultCount: 10,
     strength: 0,
+    weight: 0.3,
+    bulk: 0.2,
     traits: {
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
       group: { mergeThreshold: 999, maxSize: 200 },
@@ -161,6 +175,8 @@ var TEMPLATES = {
     renderPriority: 3,
     defaultCount: 8,
     strength: 0,
+    weight: 0.2,
+    bulk: 0.15,
     traits: {
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
       group: { mergeThreshold: 999, maxSize: 200 },
@@ -174,6 +190,8 @@ var TEMPLATES = {
     renderPriority: 3,
     defaultCount: 15,
     strength: 0,
+    weight: 3.0,
+    bulk: 2.0,
     traits: {
       diet: { eats: [], eatenBy: [] },
       group: { mergeThreshold: 999, maxSize: 500 },
@@ -189,6 +207,8 @@ var TEMPLATES = {
     renderPriority: -1,
     defaultCount: 1,
     strength: 0,
+    weight: 0,
+    bulk: 0,
     traits: {},
   },
   // --- Herbivores ---
@@ -199,6 +219,8 @@ var TEMPLATES = {
     renderPriority: 10,
     defaultCount: 10,
     strength: 1,
+    weight: 1.0,
+    bulk: 0.8,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 3, intelligence: 1 },
@@ -215,6 +237,8 @@ var TEMPLATES = {
     renderPriority: 11,
     defaultCount: 8,
     strength: 2,
+    weight: 4.0,
+    bulk: 3.0,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 2, intelligence: 2 },
@@ -232,6 +256,8 @@ var TEMPLATES = {
     renderPriority: 20,
     defaultCount: 6,
     strength: 2,
+    weight: 5.0,
+    bulk: 3.5,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 1, intelligence: 2 },
@@ -248,6 +274,8 @@ var TEMPLATES = {
     renderPriority: 21,
     defaultCount: 3,
     strength: 6,
+    weight: 10.0,
+    bulk: 6.0,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 1, intelligence: 2 },
@@ -265,6 +293,8 @@ var TEMPLATES = {
     renderPriority: 30,
     defaultCount: 5,
     strength: 3,
+    weight: 3.0,
+    bulk: 2.0,
     traits: {
       vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 3, intelligence: 2 },
@@ -281,6 +311,8 @@ var TEMPLATES = {
     renderPriority: 31,
     defaultCount: 4,
     strength: 5,
+    weight: 6.0,
+    bulk: 3.5,
     traits: {
       vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
       spatial: { speed: 2, intelligence: 3 },
