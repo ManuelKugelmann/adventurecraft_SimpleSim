@@ -1,0 +1,33 @@
+#!/bin/sh
+# Auto-update cache-bust ?v=SHA in index.html and README.md before each commit.
+# Hash is computed from the staged diff of JS+CSS files so it reflects
+# the actual content being committed.
+#
+# Setup (once per clone):
+#   git config core.hooksPath .githooks
+
+# Skip if index.html itself is already staged (manual edit — don't overwrite)
+if git diff --cached --name-only | grep -q '^index\.html$'; then
+  exit 0
+fi
+
+# Only trigger when JS or CSS files are staged
+STAGED=$(git diff --cached --name-only -- 'js/*.js' 'css/*.css')
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+# Hash from staged JS+CSS diff content
+HASH=$(git diff --cached -- js/ css/ | sha1sum | cut -c1-7)
+if [ -z "$HASH" ]; then
+  exit 0
+fi
+
+# Replace all ?v=XXXXXXX occurrences
+sed -i "s/?v=[a-f0-9]\{7\}/?v=$HASH/g" index.html
+git add index.html
+
+if [ -f README.md ]; then
+  sed -i "s/?v=[a-f0-9]\{7\}/?v=$HASH/g" README.md
+  git add README.md
+fi
