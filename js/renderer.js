@@ -412,6 +412,11 @@ var Renderer = {
     } else {
       this.selectedNode = null;
     }
+
+    // Auto-expand the most detailed layer (L1 — the clicked tile's direct group)
+    this.expandedLevels = {};
+    this.expandedLevels[groupId] = true;
+
     this.updateInspector();
   },
 
