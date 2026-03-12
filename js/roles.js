@@ -181,6 +181,11 @@ var Roles = {
     var v = node.traits.vitals;
     var actionTally = {};
 
+    // Sort rules by priority desc (matches compound evaluation order)
+    var sortedRules = roleDef.slice().sort(function(a, b) {
+      return (b.priority || 0) - (a.priority || 0);
+    });
+
     for (var p = 0; p < node.count; p++) {
       var jv = {
         hunger: clamp(v.hunger + (Math.random() - 0.5) * 12, 0, 100),
@@ -191,8 +196,9 @@ var Roles = {
 
       // Pass null for node to prevent snapshot overriding jittered vitals/count.
       // Role conditions only use vitals and sense fields, not category/templateId.
-      for (var i = 0; i < roleDef.length; i++) {
-        var rule = roleDef[i];
+      // Evaluate rules sorted by priority desc (same order as compound path).
+      for (var i = 0; i < sortedRules.length; i++) {
+        var rule = sortedRules[i];
         if (!rule.when || evalRuleConditions(rule.when, jv, sense, 1, null)) {
           actionTally[rule.name] = (actionTally[rule.name] || 0) + 1;
           break;
@@ -217,6 +223,8 @@ var Roles = {
       return;
     }
 
+    // Split minority actions into separate nodes (bounded by role rule count, max ~6).
+    // New nodes are NOT in the actors array, so they won't be double-evaluated this tick.
     for (var k = 0; k < keys.length; k++) {
       if (keys[k] === majorAction) continue;
       var splitCount = actionTally[keys[k]];

@@ -83,7 +83,7 @@ var Planner = {
       }
     }
 
-    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0 };
+    agency.activePlan = { goal: planName, steps: def.steps, target: target, stepIdx: 0, waitTicks: 0 };
     this.executeStep(node);
   },
 
@@ -129,7 +129,40 @@ var Planner = {
         break;
 
       case 'wait':
-        if (World.isMoving(node)) return;
+        if (World.isMoving(node)) {
+          plan.waitTicks++;
+          // Hard cap: abandon plan after 999 ticks of waiting
+          if (plan.waitTicks >= 999) {
+            agency.activePlan = null;
+            agency.lastAction = plan.goal + '-timeout';
+          }
+          // Drive interruption: re-scan and check if a higher-priority drive
+          // now demands action (e.g., new threat appeared while moving)
+          if (plan.waitTicks > 0 && plan.waitTicks % 3 === 0) {
+            var roleDef = ROLE_DEFS[agency.activeRole];
+            if (roleDef) {
+              var waitSense = Sense.scan(node);
+              var planRule = null;
+              for (var ri = 0; ri < roleDef.length; ri++) {
+                if (roleDef[ri].plan === plan.goal || roleDef[ri].action === plan.goal) {
+                  planRule = roleDef[ri]; break;
+                }
+              }
+              var planPriority = planRule ? (planRule.priority || 0) : 0;
+              for (var ri = 0; ri < roleDef.length; ri++) {
+                var r = roleDef[ri];
+                if ((r.priority || 0) <= planPriority) continue;
+                if (!r.when || evalRuleConditions(r.when, node.traits.vitals, waitSense, node.count, node)) {
+                  agency.activePlan = null;
+                  agency.lastAction = plan.goal + '-interrupted';
+                  return;
+                }
+              }
+            }
+          }
+          return;
+        }
+        plan.waitTicks = 0;
         this._advance(plan, agency);
         if (agency.activePlan) this.executeStep(node);
         break;
