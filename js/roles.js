@@ -22,47 +22,45 @@
 //     graze:     when hunger > 35 AND sense.food.here != null, do graze, priority = 40
 //   }
 
+// Universal animal role: one role for all species.
+// Diet-driven sense model differentiates behavior automatically:
+// - Herbivores never see prey (diet.eats has no animal categories) → hunt/seekPrey never match
+// - Carnivores never see plant food (diet.eats has no plant/seed) → graze/seekFood never match
+// - Omnivores see both → both branches available, hunger thresholds determine priority
+// Threat detection: herbivores use threats (eatenBy), predators use biggerThreats (stronger hunters)
+// Signal awareness: flee-alarm triggers on danger signals from allies (social communication)
 var ROLE_DEFS = {
-  grazer: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.threats.count', '>', 0]],                          plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'graze',     priority: 40,
-      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',  priority: 35,
-      when: [['hunger', '>', 55]],                                     plan: 'findFood' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
-  ],
-  hunter: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',      priority: 45,
-      when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'seekPrey',  priority: 35,
-      when: [['hunger', '>', 45]],                                     plan: 'huntPrey' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
-  ],
-  forager: [
-    { name: 'flee',      priority: 90,
-      when: [['sense.biggerThreats.count', '>', 0]],                   plan: 'flee' },
-    { name: 'seekWater', priority: 60,
-      when: [['thirst', '>', 60]],                                     plan: 'findWater' },
-    { name: 'hunt',      priority: 45,
-      when: [['hunger', '>', 50], ['sense.prey.here', '!=', null]],    action: 'hunt' },
-    { name: 'graze',     priority: 40,
-      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],    action: 'graze' },
-    { name: 'seekFood',  priority: 35,
-      when: [['hunger', '>', 50]],                                     plan: 'findFood' },
-    { name: 'rest',      priority: 20,
-      when: [['energy', '<', 20]],                                     action: 'rest' },
-    { name: 'wander',    priority: 0,                                  action: 'wander' },
+  animal: [
+    // Urgent: flee from direct threats (things that eat me)
+    { name: 'flee',       priority: 90,
+      when: [['sense.threats.count', '>', 0]],                           plan: 'flee' },
+    // Urgent: flee from bigger predators (things stronger than me that eat my category)
+    { name: 'fleeStrong', priority: 88,
+      when: [['sense.biggerThreats.count', '>', 0]],                    plan: 'flee' },
+    // Social alarm: flee when allies signal danger nearby
+    { name: 'fleeAlarm',  priority: 85,
+      when: [['sense.self.social', '>', 0.3],
+             ['sense.signals.danger', '>', 0]],                          plan: 'flee' },
+    // Survival: seek water when thirsty
+    { name: 'seekWater',  priority: 60,
+      when: [['thirst', '>', 60]],                                       plan: 'findWater' },
+    // Hunting: attack prey here (only matches if diet includes animal categories)
+    { name: 'hunt',       priority: 45,
+      when: [['hunger', '>', 30], ['sense.prey.here', '!=', null]],      action: 'hunt' },
+    // Grazing: eat plants/seeds here (only matches if diet includes plant/seed)
+    { name: 'graze',      priority: 40,
+      when: [['hunger', '>', 35], ['sense.food.here', '!=', null]],      action: 'graze' },
+    // Seek prey in nearby regions
+    { name: 'seekPrey',   priority: 35,
+      when: [['hunger', '>', 45], ['sense.preyNearby', '!=', null]],     plan: 'huntPrey' },
+    // Seek plant food in nearby regions
+    { name: 'seekFood',   priority: 33,
+      when: [['hunger', '>', 50], ['sense.foodNearby', '!=', null]],     plan: 'findFood' },
+    // Recovery
+    { name: 'rest',       priority: 20,
+      when: [['energy', '<', 20]],                                       action: 'rest' },
+    // Default
+    { name: 'wander',     priority: 0,                                   action: 'wander' },
   ],
 };
 
@@ -170,6 +168,19 @@ var Roles = {
       agency.actionSpread = {};
       agency.actionSpread[primary.name] = node.count;
       return;
+    }
+
+    // Plan scoring: when two close-priority rules both have plans,
+    // use intelligence-gated scoring to pick the better plan.
+    if (secondary && primary.plan && secondary.plan &&
+        (primary.priority || 0) - (secondary.priority || 0) <= 15) {
+      var scoreA = Planner.scorePlan(primary.plan, node, sense);
+      var scoreB = Planner.scorePlan(secondary.plan, node, sense);
+      if (scoreB > scoreA) {
+        var tmp = primary;
+        primary = secondary;
+        secondary = tmp;
+      }
     }
 
     this._execRule(primary, node, sense);

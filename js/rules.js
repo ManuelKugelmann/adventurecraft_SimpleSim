@@ -85,6 +85,12 @@ var BIO_RULE_DEFS = [
     prob: CONFIG.SEED_DROP_RATE,
     effects: [{ type: 'create', countRate: 0.05,
                 templateMap: { grass: 'grains' }, defaultTemplate: 'seeds' }] },
+
+  // --- Signal decay (virtual items: sounds, scents, tracks) ---
+  // count = ticks remaining; destroy 1/tick → dies naturally at 0
+  { name: 'signalDecay',
+    when: [['category', '==', 'signal']],
+    effects: [{ type: 'destroy', count: 1 }] },
 ];
 
 // === L2: REFLEX RULE DEFINITIONS — involuntary responses (DATA) ===
@@ -103,6 +109,14 @@ var REFLEX_RULE_DEFS = [
     effects: [{ type: 'birth', rate: CONFIG.BIRTH_RATE, min: 1 },
               { type: 'vital', target: 'hunger', op: 'add', amount: 12 },
               { type: 'vital', target: 'energy', op: 'sub', amount: 5 }] },
+
+  // Social alarm: emit danger signal when threats detected (involuntary for social animals)
+  { name: 'alarm',
+    when: [ANIMAL_COND,
+           ['sense.self.social', '>', 0.3],
+           ['sense.threats.count', '>', 0]],
+    effects: [{ type: 'signal', kind: 'sound', decay: 4,
+                tokens: [{ type: 'danger' }] }] },
 ];
 
 // === L3: ACTION DEFINITIONS — complete effect descriptions (DATA) ===
@@ -206,8 +220,31 @@ var Effects = {
       case 'move':    return this._move(effect, node, sense);
       case 'grow':    return this._grow(effect, node);
       case 'create':  return this._create(effect, node);
+      case 'signal':  return this._signal(effect, node);
       default:        return null;
     }
+  },
+
+  // --- Signal effect handler ---
+  // Creates a virtual item node carrying knowledge tokens.
+  // count = decay ticks (destroyed 1/tick by bio rule signalDecay).
+  _signal: function(effect, node) {
+    var sig = createNode('signal');
+    sig.count = effect.decay || 3;
+    sig.container = node.container;
+    sig.parent = node.container;
+    sig.center.x = node.center.x;
+    sig.center.y = node.center.y;
+    sig.traits.signal = {
+      kind: effect.kind || 'sound',
+      tokens: effect.tokens || [],
+      emitter: node.id,
+      emitterSpecies: node.templateId
+    };
+    World.nodes.set(sig.id, sig);
+    if (!World.byGroup.has(node.container)) World.byGroup.set(node.container, new Set());
+    World.byGroup.get(node.container).add(sig.id);
+    return null;
   },
 
   // --- Effect type handlers ---

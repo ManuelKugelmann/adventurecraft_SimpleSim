@@ -25,8 +25,13 @@
 //     }
 //   }
 
+// Plan predicted effects: { vital: delta, ... } — estimated outcome per plan.
+// Used by scorePlan() to evaluate plan desirability before committing.
+// risk: 0-1 base danger level (modified by strength ratio at runtime).
 var PLAN_DEFS = {
   flee: {
+    predict: { energy: -2 },
+    risk: 0,
     steps: [
       { type: 'startmove', destination: 'away_threats', pickup: true, label: 'flee',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }],
@@ -41,6 +46,8 @@ var PLAN_DEFS = {
   findFood: {
     initTarget: 'foodNearby',
     fallback: 'wander',
+    predict: { hunger: -15, energy: -1.5 },
+    risk: 0,
     steps: [
       { type: 'startmove', destination: '$target', pickup: true, label: 'seek-food',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
@@ -51,6 +58,8 @@ var PLAN_DEFS = {
   findWater: {
     initTarget: 'waterNearby',
     fallback: 'wander',
+    predict: { thirst: -15, energy: -1 },
+    risk: 0,
     steps: [
       { type: 'startmove', destination: '$target', pickup: true, label: 'seek-water',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
@@ -60,6 +69,8 @@ var PLAN_DEFS = {
   huntPrey: {
     initTarget: 'preyNearby',
     fallback: 'wander',
+    predict: { hunger: -25, energy: -4, health: -5 },
+    risk: 0.4,
     steps: [
       { type: 'startmove', destination: '$target', pickup: true, label: 'seek-prey',
         cost: [{ type: 'vital', target: 'energy', op: 'sub', amount: 1 }] },
@@ -72,6 +83,70 @@ var PLAN_DEFS = {
 // === PLANNER ENGINE (CODE) ===
 
 var Planner = {
+  // Score a plan based on predicted vital changes and risk.
+  // Higher score = more desirable. Intelligence gates lookahead depth:
+  //   int 1: only immediate need (no scoring, just run the plan)
+  //   int 2: consider predicted effects on current vitals
+  //   int 3+: also factor in risk using strength ratio
+  // Returns a number; higher is better.
+  scorePlan: function(planName, node, sense) {
+    var def = PLAN_DEFS[planName];
+    if (!def || !def.predict) return 0;
+
+    var intel = node.traits.spatial ? node.traits.spatial.intelligence : 1;
+    if (intel <= 1) return 0;  // low intelligence: no plan scoring
+
+    var v = node.traits.vitals;
+    if (!v) return 0;
+
+    var score = 0;
+    var predict = def.predict;
+
+    // Score each predicted vital change: bigger benefit when the vital is more critical.
+    // Hunger at 80 and predict hunger -15 → high value.
+    // Hunger at 20 and predict hunger -15 → low value.
+    var keys = Object.keys(predict);
+    for (var i = 0; i < keys.length; i++) {
+      var vital = keys[i];
+      var delta = predict[vital];
+      var current = v[vital];
+      if (current === undefined) continue;
+
+      if (delta < 0) {
+        // Reducing a vital (hunger, thirst, energy cost): value = how much we need it
+        // For needs (hunger/thirst): current is high → reducing is valuable
+        // For costs (energy): spending energy is always a cost
+        if (vital === 'energy' || vital === 'health') {
+          score += delta * 0.5;  // costs penalize score
+        } else {
+          score += (-delta) * (current / 100);  // more urgent need → higher value
+        }
+      } else {
+        // Increasing a vital (energy regen): value = how depleted we are
+        score += delta * ((100 - current) / 100);
+      }
+    }
+
+    // Risk assessment (intelligence 3+): penalize risky plans based on strength ratio
+    if (intel >= 3 && def.risk > 0) {
+      var myStrength = sense.self.strength * Math.max(1, node.count);
+      var threatStrength = 0;
+
+      // Estimate prey strength for hunting plans
+      if (planName === 'huntPrey' && sense.prey.here) {
+        var preyTmpl = TEMPLATES[sense.prey.here.templateId];
+        threatStrength = preyTmpl.strength * sense.prey.here.count;
+      }
+
+      var ratio = myStrength / Math.max(threatStrength, 1);
+      // risk penalty: higher when we're weaker relative to target
+      var riskPenalty = def.risk * (1 / Math.max(ratio, 0.1)) * 10;
+      score -= riskPenalty;
+    }
+
+    return score;
+  },
+
   start: function(node, planName) {
     var agency = node.traits.agency;
     var def = PLAN_DEFS[planName];

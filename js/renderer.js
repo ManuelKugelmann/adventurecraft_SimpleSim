@@ -71,7 +71,7 @@ var Renderer = {
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
       var tmpl = TEMPLATES[name];
-      if (tmpl.category === 'tilegroup') continue;
+      if (tmpl.category === 'tilegroup' || tmpl.category === 'signal') continue;
       var catIdx = catMap[tmpl.category];
       if (catIdx === undefined) continue;
       var displayName = name.replace(/^tile_/, '');
@@ -196,7 +196,7 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
-      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup' || tmpl.category === 'signal') return;
       if (node.containedBy) return;
       var cx = node.center.x, cy = node.center.y;
       var r = node.spread;
@@ -324,7 +324,7 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (node.alive) {
         var tmpl = TEMPLATES[node.templateId];
-        if (tmpl.category !== 'terrain' && tmpl.category !== 'tilegroup') {
+        if (tmpl.category !== 'terrain' && tmpl.category !== 'tilegroup' && tmpl.category !== 'signal') {
           counts[node.templateId] = (counts[node.templateId] || 0) + Math.floor(node.count);
         }
       }
@@ -334,7 +334,7 @@ var Renderer = {
     for (var i = 0; i < templateNames.length; i++) {
       var name = templateNames[i];
       var tmpl = TEMPLATES[name];
-      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') continue;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup' || tmpl.category === 'signal') continue;
       parts.push('<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span>' + counts[name]);
     }
     this.statsEl.innerHTML = parts.join(' ');
@@ -351,7 +351,7 @@ var Renderer = {
     World.nodes.forEach(function(node) {
       if (!node.alive) return;
       var tmpl = TEMPLATES[node.templateId];
-      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup') return;
+      if (tmpl.category === 'terrain' || tmpl.category === 'tilegroup' || tmpl.category === 'signal') return;
       if (node.containedBy) return;
       var d = Math.abs(node.center.x - x) + Math.abs(node.center.y - y);
       if (d < bestDist || (d === bestDist && best && !best.traits.agency && node.traits.agency)) {
@@ -685,6 +685,11 @@ var Renderer = {
       html += this._buildSection('spatial', n.traits.spatial);
     }
 
+    // Social
+    if (n.traits.social) {
+      html += this._buildSection('social', n.traits.social);
+    }
+
     // Sense model
     if (this.showSense && n.traits.agency) {
       var sense = Sense.scan(n);
@@ -695,6 +700,9 @@ var Renderer = {
         biggerThreats: { count: sense.biggerThreats.count, here: sense.biggerThreats.here },
         water: sense.water,
         stones: sense.stones,
+        signals: sense.signals,
+        allies: sense.allies,
+        self: sense.self,
         neighbors: sense.neighbors.length,
         foodNearby: sense.foodNearby,
         preyNearby: sense.preyNearby,

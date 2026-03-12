@@ -177,6 +177,18 @@ var TEMPLATES = {
       group: { mergeThreshold: 999, maxSize: 500 },
     },
   },
+  // --- Signals (virtual items: sounds, scents, tracks — decay over time) ---
+  // count = ticks remaining (destroyed 1/tick by bio rules, dies at 0)
+  // signal trait set dynamically on creation with kind, tokens, emitter info
+  signal: {
+    category: 'signal',
+    symbol: '!',
+    color: '#666',
+    renderPriority: -1,
+    defaultCount: 1,
+    strength: 0,
+    traits: {},
+  },
   // --- Herbivores ---
   rabbit: {
     category: 'herbivore',
@@ -187,9 +199,10 @@ var TEMPLATES = {
     strength: 1,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 3 },
+      spatial: { speed: 3, intelligence: 1 },
+      social: { gregarious: 0.6 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'grazer', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -202,9 +215,10 @@ var TEMPLATES = {
     strength: 2,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 2 },
+      spatial: { speed: 2, intelligence: 1 },
+      social: { gregarious: 0.7 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
-      agency: { activeRole: 'grazer', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -218,9 +232,10 @@ var TEMPLATES = {
     strength: 2,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 1 },
+      spatial: { speed: 1, intelligence: 2 },
+      social: { gregarious: 0.4 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
-      agency: { activeRole: 'forager', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 40 },
     },
   },
@@ -233,9 +248,10 @@ var TEMPLATES = {
     strength: 6,
     traits: {
       vitals: { hunger: 20, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 1 },
+      spatial: { speed: 1, intelligence: 3 },
+      social: { gregarious: 0.1 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'forager', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 20 },
     },
   },
@@ -249,9 +265,10 @@ var TEMPLATES = {
     strength: 3,
     traits: {
       vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 3 },
+      spatial: { speed: 3, intelligence: 3 },
+      social: { gregarious: 0.2 },
       diet: { eats: ['herbivore'], eatenBy: [] },
-      agency: { activeRole: 'hunter', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 30 },
     },
   },
@@ -264,9 +281,10 @@ var TEMPLATES = {
     strength: 5,
     traits: {
       vitals: { hunger: 25, energy: 80, health: 100, thirst: 10 },
-      spatial: { speed: 2 },
+      spatial: { speed: 2, intelligence: 3 },
+      social: { gregarious: 0.8 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
-      agency: { activeRole: 'hunter', activePlan: null, lastAction: null },
+      agency: { activeRole: 'animal', activePlan: null, lastAction: null },
       group: { mergeThreshold: 15, maxSize: 25 },
     },
   },
