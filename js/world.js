@@ -741,57 +741,161 @@ var World = {
   generateLevel: function(level) {
     var self = this;
     var prevIds = this.levels[level - 1];
-    var assigned = {};
     var newIds = [];
 
-    // Shuffle for variety
-    var shuffled = prevIds.slice();
-    for (var i = shuffled.length - 1; i > 0; i--) {
-      var j = Math.floor(Rng.random() * (i + 1));
-      var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+    // Target cluster size: midpoint of BRANCH_MIN..BRANCH_MAX
+    var targetSize = Math.floor((CONFIG.HIERARCHY_BRANCH_MIN + CONFIG.HIERARCHY_BRANCH_MAX) / 2);
+    var numSeeds = Math.max(1, Math.ceil(prevIds.length / targetSize));
+
+    // Build adjacency lookup for prev-level groups (id → [neighbor ids at same level])
+    var prevSet = {};
+    for (var i = 0; i < prevIds.length; i++) prevSet[prevIds[i]] = true;
+    var adj = {};
+    for (var i = 0; i < prevIds.length; i++) {
+      var g = self.groups.get(prevIds[i]);
+      adj[prevIds[i]] = [];
+      if (!g) continue;
+      for (var ni = 0; ni < g.neighbors.length; ni++) {
+        if (prevSet[g.neighbors[ni]]) adj[prevIds[i]].push(g.neighbors[ni]);
+      }
     }
 
-    for (var si = 0; si < shuffled.length; si++) {
-      var startId = shuffled[si];
-      if (assigned[startId]) continue;
+    // Greedy farthest-point seed selection for even spacing
+    var seeds = [];
+    var dist = {};  // id → min distance to any seed (in hops)
+    // First seed: random
+    var firstIdx = Math.floor(Rng.random() * prevIds.length);
+    seeds.push(prevIds[firstIdx]);
 
-      // Flood-fill adjacent groups at prev level
-      var cluster = [startId];
-      assigned[startId] = true;
-      var queue = [startId];
-
-      while (queue.length > 0 && cluster.length < CONFIG.HIERARCHY_BRANCH_MAX) {
-        var current = queue.shift();
-        var currentGroup = self.groups.get(current);
-        if (!currentGroup) continue;
-
-        var neighbors = currentGroup.neighbors;
-        for (var ni = 0; ni < neighbors.length; ni++) {
-          var nid = neighbors[ni];
-          if (assigned[nid] || cluster.length >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
-          // Only group things at the same level
-          var ng = self.groups.get(nid);
-          if (!ng || ng.level !== level - 1) continue;
-          cluster.push(nid);
-          assigned[nid] = true;
-          queue.push(nid);
+    // BFS from first seed to initialize distances
+    for (var i = 0; i < prevIds.length; i++) dist[prevIds[i]] = Infinity;
+    var bfsQ = [prevIds[firstIdx]];
+    dist[prevIds[firstIdx]] = 0;
+    while (bfsQ.length > 0) {
+      var cur = bfsQ.shift();
+      var nb = adj[cur];
+      for (var ni = 0; ni < nb.length; ni++) {
+        if (dist[nb[ni]] === Infinity) {
+          dist[nb[ni]] = dist[cur] + 1;
+          bfsQ.push(nb[ni]);
         }
       }
+    }
 
-      // Create parent group
+    // Pick remaining seeds: always the farthest unselected node
+    while (seeds.length < numSeeds) {
+      var bestId = null;
+      var bestDist = -1;
+      for (var i = 0; i < prevIds.length; i++) {
+        if (dist[prevIds[i]] > bestDist) {
+          bestDist = dist[prevIds[i]];
+          bestId = prevIds[i];
+        }
+      }
+      if (bestId === null || bestDist <= 0) break;
+      seeds.push(bestId);
+
+      // BFS from new seed to update min distances
+      var bfsQ2 = [bestId];
+      dist[bestId] = 0;
+      while (bfsQ2.length > 0) {
+        var cur = bfsQ2.shift();
+        var nb = adj[cur];
+        for (var ni = 0; ni < nb.length; ni++) {
+          if (dist[nb[ni]] > dist[cur] + 1) {
+            dist[nb[ni]] = dist[cur] + 1;
+            bfsQ2.push(nb[ni]);
+          }
+        }
+      }
+    }
+
+    // Multi-source BFS: all seeds expand simultaneously, round-robin
+    var clusters = [];    // array of arrays of member ids
+    var owner = {};       // id → cluster index
+    var frontiers = [];   // per-cluster BFS frontier
+
+    for (var si = 0; si < seeds.length; si++) {
+      clusters.push([seeds[si]]);
+      owner[seeds[si]] = si;
+      frontiers.push([seeds[si]]);
+    }
+
+    // Expand all clusters breadth-first until everything is assigned
+    var anyExpanded = true;
+    while (anyExpanded) {
+      anyExpanded = false;
+      for (var ci = 0; ci < clusters.length; ci++) {
+        if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
+        if (frontiers[ci].length === 0) continue;
+
+        var nextFrontier = [];
+        for (var fi = 0; fi < frontiers[ci].length; fi++) {
+          if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) break;
+          var cur = frontiers[ci][fi];
+          var nb = adj[cur];
+          // Shuffle neighbors for variety
+          for (var ni = nb.length - 1; ni > 0; ni--) {
+            var j = Math.floor(Rng.random() * (ni + 1));
+            var tmp = nb[ni]; nb[ni] = nb[j]; nb[j] = tmp;
+          }
+          for (var ni = 0; ni < nb.length; ni++) {
+            if (owner[nb[ni]] !== undefined) continue;
+            if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) break;
+            clusters[ci].push(nb[ni]);
+            owner[nb[ni]] = ci;
+            nextFrontier.push(nb[ni]);
+            anyExpanded = true;
+          }
+        }
+        frontiers[ci] = nextFrontier;
+      }
+    }
+
+    // Assign any remaining unowned nodes to nearest cluster
+    for (var i = 0; i < prevIds.length; i++) {
+      var pid = prevIds[i];
+      if (owner[pid] !== undefined) continue;
+      // Find adjacent cluster with fewest members
+      var bestCluster = -1;
+      var bestSize = Infinity;
+      var nb = adj[pid];
+      for (var ni = 0; ni < nb.length; ni++) {
+        if (owner[nb[ni]] !== undefined) {
+          var ci = owner[nb[ni]];
+          if (clusters[ci].length < bestSize) {
+            bestSize = clusters[ci].length;
+            bestCluster = ci;
+          }
+        }
+      }
+      if (bestCluster >= 0) {
+        clusters[bestCluster].push(pid);
+        owner[pid] = bestCluster;
+      } else {
+        // Isolated — start a new cluster
+        owner[pid] = clusters.length;
+        clusters.push([pid]);
+      }
+    }
+
+    // Create parent groups from clusters
+    for (var ci = 0; ci < clusters.length; ci++) {
+      var cluster = clusters[ci];
+      if (cluster.length === 0) continue;
+
       var parentNode = createNode('tilegroup');
       parentNode.level = level;
       parentNode.children = cluster;
       parentNode.parentGroup = null;
       parentNode.neighbors = [];
 
-      // Aggregate properties from children
       var allTiles = [];
       var cx = 0, cy = 0, totalFertility = 0;
       var typeCounts = {};
 
-      for (var ci = 0; ci < cluster.length; ci++) {
-        var child = self.groups.get(cluster[ci]);
+      for (var ki = 0; ki < cluster.length; ki++) {
+        var child = self.groups.get(cluster[ki]);
         child.parentGroup = parentNode.id;
 
         for (var ti = 0; ti < child.tiles.length; ti++) {
@@ -811,7 +915,6 @@ var World = {
       parentNode.fertility = totalFertility / allTiles.length;
       computeSpread(parentNode);
 
-      // Dominant type
       var bestType = 'mixed', bestCount = 0;
       var typeKeys = Object.keys(typeCounts);
       for (var tk = 0; tk < typeKeys.length; tk++) {
@@ -826,81 +929,6 @@ var World = {
       self.nodes.set(parentNode.id, parentNode);
       self.byGroup.set(parentNode.id, new Set());
       newIds.push(parentNode.id);
-    }
-
-    // Merge undersized groups (< BRANCH_MIN children) into adjacent groups
-    var changed = true;
-    while (changed) {
-      changed = false;
-      for (var mi = newIds.length - 1; mi >= 0; mi--) {
-        var small = self.groups.get(newIds[mi]);
-        if (!small || small.children.length >= CONFIG.HIERARCHY_BRANCH_MIN) continue;
-
-        // Find smallest adjacent group at this level to merge into
-        var bestTarget = null;
-        var bestSize = Infinity;
-        for (var ci = 0; ci < small.children.length; ci++) {
-          var child = self.groups.get(small.children[ci]);
-          if (!child) continue;
-          for (var ni = 0; ni < child.neighbors.length; ni++) {
-            var neighborChild = self.groups.get(child.neighbors[ni]);
-            if (!neighborChild || neighborChild.parentGroup === small.id) continue;
-            var target = self.groups.get(neighborChild.parentGroup);
-            if (!target || target.level !== level) continue;
-            // Prefer merging into smaller groups to keep balance
-            if (target.children.length < bestSize) {
-              bestSize = target.children.length;
-              bestTarget = target;
-            }
-          }
-        }
-
-        if (bestTarget) {
-          // Move all children to target
-          for (var ci = 0; ci < small.children.length; ci++) {
-            var child = self.groups.get(small.children[ci]);
-            if (child) child.parentGroup = bestTarget.id;
-            bestTarget.children.push(small.children[ci]);
-          }
-          // Merge tiles and recalculate center
-          for (var ti = 0; ti < small.tiles.length; ti++) {
-            bestTarget.tiles.push(small.tiles[ti]);
-          }
-          bestTarget.tileCount = bestTarget.tiles.length;
-          bestTarget.count = bestTarget.tiles.length;
-          var tcx = 0, tcy = 0, tFert = 0;
-          for (var ti = 0; ti < bestTarget.tiles.length; ti++) {
-            var tIdx = bestTarget.tiles[ti];
-            tcx += tIdx % self.width;
-            tcy += Math.floor(tIdx / self.width);
-            tFert += self.tileNodes[tIdx].fertility;
-          }
-          bestTarget.center.x = Math.round(tcx / bestTarget.tileCount);
-          bestTarget.center.y = Math.round(tcy / bestTarget.tileCount);
-          bestTarget.fertility = tFert / bestTarget.tileCount;
-          computeSpread(bestTarget);
-
-          // Recalculate dominant type
-          var tc = {};
-          for (var ci = 0; ci < bestTarget.children.length; ci++) {
-            var ch = self.groups.get(bestTarget.children[ci]);
-            if (ch) tc[ch.type] = (tc[ch.type] || 0) + ch.tileCount;
-          }
-          var bt = 'mixed', bc = 0;
-          var tks = Object.keys(tc);
-          for (var tk = 0; tk < tks.length; tk++) {
-            if (tc[tks[tk]] > bc) { bc = tc[tks[tk]]; bt = tks[tk]; }
-          }
-          bestTarget.type = bt;
-
-          // Remove the small group
-          self.groups.delete(small.id);
-          self.nodes.delete(small.id);
-          self.byGroup.delete(small.id);
-          newIds.splice(mi, 1);
-          changed = true;
-        }
-      }
     }
 
     // Build adjacency for this level from children's adjacency
