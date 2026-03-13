@@ -699,24 +699,29 @@ var Renderer = {
   },
 
   // Generate a probabilistic individual from a group node (count > 1)
-  // Applies small variance to vitals to represent within-group distribution
+  // Uses stored diversity (per-vital σ) and group seed for deterministic sampling
   _sampleIndividual: function(n) {
     var individual = {};
+    var dv = (n.traits.group && n.traits.group.diversity) ? n.traits.group.diversity : null;
+    // Use group's diversity seed for deterministic sampling (same group → same preview)
+    var sampleSeed = dv ? dv.seed : n.id;
+    // Simple seeded hash for stable per-render sample
+    var h = ((sampleSeed * 2654435761) >>> 0) / 4294967296;
     if (n.traits.vitals) {
       var v = n.traits.vitals;
       individual.vitals = {};
-      var keys = Object.keys(v);
-      for (var i = 0; i < keys.length; i++) {
-        var val = v[keys[i]];
-        if (typeof val === 'number') {
-          // ±10% variance
-          var noise = (Rng.random() - 0.5) * 0.2;
-          individual.vitals[keys[i]] = Math.max(0, Math.min(100, val + val * noise));
-        } else {
-          individual.vitals[keys[i]] = val;
-        }
+      var vitalKeys = ['hunger', 'energy', 'health', 'thirst'];
+      for (var i = 0; i < vitalKeys.length; i++) {
+        var vk = vitalKeys[i];
+        if (v[vk] === undefined) continue;
+        var sigma = dv ? (dv[vk] || 0) : v[vk] * 0.1;
+        // Deterministic noise from seed + vital index
+        h = (((h * 4294967296 + i) * 2654435761) >>> 0) / 4294967296;
+        var noise = (h - 0.5) * 2 * sigma;
+        individual.vitals[vk] = Math.max(0, Math.min(100, v[vk] + noise));
       }
     }
+    individual.diversity = dv;
     return individual;
   },
 
@@ -742,6 +747,19 @@ var Renderer = {
       // Vitals
       if (sampled.vitals) {
         html += this._buildSection('vitals', sampled.vitals);
+      }
+
+      // Diversity (σ per vital)
+      if (sampled.diversity) {
+        var divView = {};
+        var dvKeys = ['hunger', 'energy', 'health', 'thirst'];
+        for (var di = 0; di < dvKeys.length; di++) {
+          if (sampled.diversity[dvKeys[di]] !== undefined) {
+            divView[dvKeys[di]] = sampled.diversity[dvKeys[di]];
+          }
+        }
+        divView.seed = sampled.diversity.seed;
+        html += this._buildSection('diversity (\u03C3)', divView);
       }
 
       // Spatial (same as group — doesn't vary)
