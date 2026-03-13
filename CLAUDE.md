@@ -150,9 +150,69 @@ Node {
       target,       // null (stationary), 'center', or neighborId (destination)
       progress      // 0.0-1.0 (fraction of edge traversed)
     },
+    seed,           // PRNG seed for deterministic expansion of in-distribution members
+    splitParent,    // source group ID for quick re-compression after split
     traits: {}      // vitals, diet, agency, spatial, social, group, signal
 }
 ```
+
+### Unified Hierarchy — Containment + Compression
+
+Spatial containment and compression are the **same hierarchy**. A node with `count > 1`
+is simultaneously a spatial container at its hierarchy level and a compressed representation
+of its members (count + seed + compound stats). Higher in the tree = coarser spatial
+precision = more compression.
+
+**Parent-child = colocation + divergence**. Being a child means "I'm in the same place
+as my parent but I diverge from its statistical summary." Parent compound data describes
+the in-distribution population; out-of-distribution (OOD) children are explicit nodes
+excluded from compound stats. In-distribution members need no explicit nodes — they're
+implied by the parent's `count + seed` and can be expanded deterministically on demand.
+
+```
+L2 Region (grass, 80 tiles, seed: 17, count: 80)   ← compound: "typical grass"
+ ├─ L1 Region (20 tiles, seed: 5)                   ← OOD: contains landmark
+ │   └─ Landmark tile                               ← OOD from grass distribution
+ ├─ L1 Region (25 tiles, seed: 8)                   ← OOD: has divergent entities
+ │   ├─ Rabbit group (count:15, seed:99)             ← compound: 15 normal rabbits
+ │   │   └─ Injured rabbit                           ← OOD: diverged from group vitals
+ │   └─ Wolf (count:1)                               ← individual
+ └─ (remaining 35 tiles implied by parent seed)      ← in-distribution, no explicit nodes
+```
+
+**Seed-based expansion** is universal (tiles, entities, items). Same seed → same
+individuals every time. Seeds are refreshed on merge and split.
+
+**splitParent**: when an individual is split from a group, caches the source group ID
+for efficient re-merge when conditions allow (e.g., moving out of camera focus).
+
+**View-distance LOD** (future): merge/split thresholds vary by distance from camera
+focus. Near focus → more splits → finer detail. Far from focus → more merges → coarser.
+
+**Social membership** (future) is the only truly orthogonal dimension — packs, factions,
+contracts are independent of spatial containment.
+
+### Intra-Region Movement
+
+Each region is a small graph: a **center** node connected to **link** nodes (one per neighbor).
+Three movement patterns:
+
+```
+     ┌─ link_A ──── neighbor A
+     │
+  center ── link_B ──── neighbor B
+     │
+     └─ link_C ──── neighbor C
+```
+
+1. **center → link**: entity heading toward a neighbor (leaving this region)
+2. **link → center**: entity arriving in this region (stopping here)
+3. **link → link**: pass-through — entity transiting without stopping at center
+   (direct Manhattan distance between link positions, no detour through center)
+
+Movement is continuous along edges (`progress` 0→1). Location is graph-fractional at
+every hierarchy level. `_pendingMove` queues the next destination for seamless
+multi-region traversal. Speed: `spatial.speed * carrySpeedFactor(node)`.
 
 ### Connection Graph (Links)
 

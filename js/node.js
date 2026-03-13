@@ -22,6 +22,8 @@ function createNode(templateId) {
     contains: [],           // node IDs contained by this node (carried items)
     containedBy: null,      // node ID of carrier, or null if free
     position: { at: 'center', target: null, progress: 0 }, // graph position within container
+    seed: null,             // PRNG seed for deterministic expansion of in-distribution members
+    splitParent: null,      // source group ID for quick re-compression after split
     traits: {},
   };
 

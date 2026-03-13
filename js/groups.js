@@ -84,6 +84,7 @@ var Groups = {
             }
             b.contains = [];
             computeSpread(a);
+            a.seed = Rng.random(); // new seed captures merged distribution
             World.removeGroup(b);
           }
         }
@@ -151,6 +152,10 @@ var Groups = {
       if (node.traits.agency && newNode.traits.agency) {
         newNode.traits.agency.activeRole = node.traits.agency.activeRole;
       }
+
+      newNode.splitParent = node.id;
+      newNode.seed = Rng.random();
+      node.seed = Rng.random(); // parent distribution changed too
 
       World.nodes.set(newNode.id, newNode);
       if (!World.byGroup.has(targetGroup)) World.byGroup.set(targetGroup, new Set());
