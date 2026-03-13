@@ -743,139 +743,125 @@ var World = {
     var prevIds = this.levels[level - 1];
     var newIds = [];
 
-    // Target cluster size: midpoint of BRANCH_MIN..BRANCH_MAX
+    // Parallel merge: multiple rounds per level.
+    // Each round, every unclaimed group claims unclaimed direct neighbors (1-hop).
+    // Rounds repeat until target size reached, reducing group count aggressively
+    // so fewer hierarchy levels are needed.
+
+    // Start: each prev-level group is its own cluster
+    var clusterOf = {};  // prevId → cluster representative id
+    for (var i = 0; i < prevIds.length; i++) {
+      clusterOf[prevIds[i]] = prevIds[i];
+    }
+
+    // Find root representative (with path compression)
+    function find(id) {
+      while (clusterOf[id] !== id) {
+        clusterOf[id] = clusterOf[clusterOf[id]]; // path compression
+        id = clusterOf[id];
+      }
+      return id;
+    }
+
+    // Merge two clusters
+    var clusterMembers = {};  // representative → [member ids]
+    for (var i = 0; i < prevIds.length; i++) {
+      clusterMembers[prevIds[i]] = [prevIds[i]];
+    }
+
+    function merge(a, b) {
+      var ra = find(a), rb = find(b);
+      if (ra === rb) return;
+      // Smaller merges into larger
+      var ma = clusterMembers[ra], mb = clusterMembers[rb];
+      if (ma.length < mb.length) { var tmp = ra; ra = rb; rb = tmp; tmp = ma; ma = mb; mb = tmp; }
+      // rb merges into ra
+      clusterOf[rb] = ra;
+      for (var i = 0; i < mb.length; i++) {
+        ma.push(mb[i]);
+        clusterOf[mb[i]] = ra;
+      }
+      delete clusterMembers[rb];
+    }
+
+    // Count distinct clusters
+    function clusterCount() {
+      return Object.keys(clusterMembers).length;
+    }
+
+    // Target: reduce to roughly prevIds.length / targetSize clusters per round
     var targetSize = Math.floor((CONFIG.HIERARCHY_BRANCH_MIN + CONFIG.HIERARCHY_BRANCH_MAX) / 2);
-    var numSeeds = Math.max(1, Math.ceil(prevIds.length / targetSize));
+    var targetClusters = Math.max(CONFIG.HIERARCHY_BRANCH_MAX, Math.ceil(prevIds.length / targetSize));
+    var maxRounds = 20; // safety cap
 
-    // Build adjacency lookup for prev-level groups (id → [neighbor ids at same level])
-    var prevSet = {};
-    for (var i = 0; i < prevIds.length; i++) prevSet[prevIds[i]] = true;
-    var adj = {};
+    for (var round = 0; round < maxRounds && clusterCount() > targetClusters; round++) {
+      // Shuffle for fair parallel access
+      var shuffled = prevIds.slice();
+      for (var i = shuffled.length - 1; i > 0; i--) {
+        var j = Math.floor(Rng.random() * (i + 1));
+        var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
+
+      var mergedThisRound = false;
+
+      for (var si = 0; si < shuffled.length; si++) {
+        var id = shuffled[si];
+        var myRoot = find(id);
+        var mySize = clusterMembers[myRoot] ? clusterMembers[myRoot].length : 1;
+        if (mySize >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
+
+        var g = self.groups.get(id);
+        if (!g) continue;
+
+        // Try to merge with a neighbor: prefer same terrain type, smallest cluster
+        var myType = g.type;
+        var bestNid = null;
+        var bestScore = -Infinity;
+        for (var ni = 0; ni < g.neighbors.length; ni++) {
+          var nid = g.neighbors[ni];
+          if (clusterOf[nid] === undefined) continue; // not at this level
+          var nRoot = find(nid);
+          if (nRoot === myRoot) continue; // same cluster
+          var nSize = clusterMembers[nRoot] ? clusterMembers[nRoot].length : 1;
+          // Only merge if combined won't exceed BRANCH_MAX
+          if (mySize + nSize > CONFIG.HIERARCHY_BRANCH_MAX) continue;
+          var ng = self.groups.get(nid);
+          if (!ng) continue;
+          // Terrain similarity: loosens with level
+          // Level 2: only merge same type
+          // Level 3: allow different land types but not land+water
+          // Level 4+: allow anything
+          var sameType = (ng.type === myType) ? 1 : 0;
+          var bothLand = (myType !== 'water' && ng.type !== 'water');
+          var compatible = sameType ||
+            (level >= 3 && bothLand) ||
+            (level >= 4);
+          if (!compatible) continue;
+          // Score: prefer same type (+10), then smaller clusters
+          var score = sameType * 10 - nSize;
+          if (score > bestScore) {
+            bestScore = score;
+            bestNid = nid;
+          }
+        }
+
+        if (bestNid !== null) {
+          merge(id, bestNid);
+          mergedThisRound = true;
+        }
+      }
+
+      if (!mergedThisRound) break; // no progress, stop
+    }
+
+    // Collect final clusters
+    var seen = {};
+    var clusters = [];
     for (var i = 0; i < prevIds.length; i++) {
-      var g = self.groups.get(prevIds[i]);
-      adj[prevIds[i]] = [];
-      if (!g) continue;
-      for (var ni = 0; ni < g.neighbors.length; ni++) {
-        if (prevSet[g.neighbors[ni]]) adj[prevIds[i]].push(g.neighbors[ni]);
-      }
-    }
-
-    // Greedy farthest-point seed selection for even spacing
-    var seeds = [];
-    var dist = {};  // id → min distance to any seed (in hops)
-    // First seed: random
-    var firstIdx = Math.floor(Rng.random() * prevIds.length);
-    seeds.push(prevIds[firstIdx]);
-
-    // BFS from first seed to initialize distances
-    for (var i = 0; i < prevIds.length; i++) dist[prevIds[i]] = Infinity;
-    var bfsQ = [prevIds[firstIdx]];
-    dist[prevIds[firstIdx]] = 0;
-    while (bfsQ.length > 0) {
-      var cur = bfsQ.shift();
-      var nb = adj[cur];
-      for (var ni = 0; ni < nb.length; ni++) {
-        if (dist[nb[ni]] === Infinity) {
-          dist[nb[ni]] = dist[cur] + 1;
-          bfsQ.push(nb[ni]);
-        }
-      }
-    }
-
-    // Pick remaining seeds: always the farthest unselected node
-    while (seeds.length < numSeeds) {
-      var bestId = null;
-      var bestDist = -1;
-      for (var i = 0; i < prevIds.length; i++) {
-        if (dist[prevIds[i]] > bestDist) {
-          bestDist = dist[prevIds[i]];
-          bestId = prevIds[i];
-        }
-      }
-      if (bestId === null || bestDist <= 0) break;
-      seeds.push(bestId);
-
-      // BFS from new seed to update min distances
-      var bfsQ2 = [bestId];
-      dist[bestId] = 0;
-      while (bfsQ2.length > 0) {
-        var cur = bfsQ2.shift();
-        var nb = adj[cur];
-        for (var ni = 0; ni < nb.length; ni++) {
-          if (dist[nb[ni]] > dist[cur] + 1) {
-            dist[nb[ni]] = dist[cur] + 1;
-            bfsQ2.push(nb[ni]);
-          }
-        }
-      }
-    }
-
-    // Multi-source BFS: all seeds expand simultaneously, round-robin
-    var clusters = [];    // array of arrays of member ids
-    var owner = {};       // id → cluster index
-    var frontiers = [];   // per-cluster BFS frontier
-
-    for (var si = 0; si < seeds.length; si++) {
-      clusters.push([seeds[si]]);
-      owner[seeds[si]] = si;
-      frontiers.push([seeds[si]]);
-    }
-
-    // Expand all clusters breadth-first until everything is assigned
-    var anyExpanded = true;
-    while (anyExpanded) {
-      anyExpanded = false;
-      for (var ci = 0; ci < clusters.length; ci++) {
-        if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
-        if (frontiers[ci].length === 0) continue;
-
-        var nextFrontier = [];
-        for (var fi = 0; fi < frontiers[ci].length; fi++) {
-          if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) break;
-          var cur = frontiers[ci][fi];
-          var nb = adj[cur];
-          // Shuffle neighbors for variety
-          for (var ni = nb.length - 1; ni > 0; ni--) {
-            var j = Math.floor(Rng.random() * (ni + 1));
-            var tmp = nb[ni]; nb[ni] = nb[j]; nb[j] = tmp;
-          }
-          for (var ni = 0; ni < nb.length; ni++) {
-            if (owner[nb[ni]] !== undefined) continue;
-            if (clusters[ci].length >= CONFIG.HIERARCHY_BRANCH_MAX) break;
-            clusters[ci].push(nb[ni]);
-            owner[nb[ni]] = ci;
-            nextFrontier.push(nb[ni]);
-            anyExpanded = true;
-          }
-        }
-        frontiers[ci] = nextFrontier;
-      }
-    }
-
-    // Assign any remaining unowned nodes to nearest cluster
-    for (var i = 0; i < prevIds.length; i++) {
-      var pid = prevIds[i];
-      if (owner[pid] !== undefined) continue;
-      // Find adjacent cluster with fewest members
-      var bestCluster = -1;
-      var bestSize = Infinity;
-      var nb = adj[pid];
-      for (var ni = 0; ni < nb.length; ni++) {
-        if (owner[nb[ni]] !== undefined) {
-          var ci = owner[nb[ni]];
-          if (clusters[ci].length < bestSize) {
-            bestSize = clusters[ci].length;
-            bestCluster = ci;
-          }
-        }
-      }
-      if (bestCluster >= 0) {
-        clusters[bestCluster].push(pid);
-        owner[pid] = bestCluster;
-      } else {
-        // Isolated — start a new cluster
-        owner[pid] = clusters.length;
-        clusters.push([pid]);
+      var root = find(prevIds[i]);
+      if (!seen[root]) {
+        seen[root] = true;
+        clusters.push(clusterMembers[root]);
       }
     }
 
