@@ -115,8 +115,8 @@ var TEMPLATES = {
   // weight/bulk: per unit count. Total = weight * count when carried.
   grass: {
     category: 'plant',
-    symbol: '♣',
-    color: '#6dbf5c',
+    symbol: '.',
+    color: '#4a8a3f',
     renderPriority: 0,
     defaultCount: 20,
     strength: 0,
@@ -130,7 +130,7 @@ var TEMPLATES = {
   },
   bush: {
     category: 'plant',
-    symbol: '❀',
+    symbol: '♣',
     color: '#3d8b37',
     renderPriority: 1,
     defaultCount: 12,
@@ -146,7 +146,7 @@ var TEMPLATES = {
   tree: {
     category: 'plant',
     symbol: '♠',
-    color: '#2d6b27',
+    color: '#1e4d1a',
     renderPriority: 2,
     defaultCount: 5,
     strength: 0,

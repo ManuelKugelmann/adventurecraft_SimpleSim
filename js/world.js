@@ -828,6 +828,81 @@ var World = {
       newIds.push(parentNode.id);
     }
 
+    // Merge undersized groups (< BRANCH_MIN children) into adjacent groups
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var mi = newIds.length - 1; mi >= 0; mi--) {
+        var small = self.groups.get(newIds[mi]);
+        if (!small || small.children.length >= CONFIG.HIERARCHY_BRANCH_MIN) continue;
+
+        // Find smallest adjacent group at this level to merge into
+        var bestTarget = null;
+        var bestSize = Infinity;
+        for (var ci = 0; ci < small.children.length; ci++) {
+          var child = self.groups.get(small.children[ci]);
+          if (!child) continue;
+          for (var ni = 0; ni < child.neighbors.length; ni++) {
+            var neighborChild = self.groups.get(child.neighbors[ni]);
+            if (!neighborChild || neighborChild.parentGroup === small.id) continue;
+            var target = self.groups.get(neighborChild.parentGroup);
+            if (!target || target.level !== level) continue;
+            // Prefer merging into smaller groups to keep balance
+            if (target.children.length < bestSize) {
+              bestSize = target.children.length;
+              bestTarget = target;
+            }
+          }
+        }
+
+        if (bestTarget) {
+          // Move all children to target
+          for (var ci = 0; ci < small.children.length; ci++) {
+            var child = self.groups.get(small.children[ci]);
+            if (child) child.parentGroup = bestTarget.id;
+            bestTarget.children.push(small.children[ci]);
+          }
+          // Merge tiles and recalculate center
+          for (var ti = 0; ti < small.tiles.length; ti++) {
+            bestTarget.tiles.push(small.tiles[ti]);
+          }
+          bestTarget.tileCount = bestTarget.tiles.length;
+          bestTarget.count = bestTarget.tiles.length;
+          var tcx = 0, tcy = 0, tFert = 0;
+          for (var ti = 0; ti < bestTarget.tiles.length; ti++) {
+            var tIdx = bestTarget.tiles[ti];
+            tcx += tIdx % self.width;
+            tcy += Math.floor(tIdx / self.width);
+            tFert += self.tileNodes[tIdx].fertility;
+          }
+          bestTarget.center.x = Math.round(tcx / bestTarget.tileCount);
+          bestTarget.center.y = Math.round(tcy / bestTarget.tileCount);
+          bestTarget.fertility = tFert / bestTarget.tileCount;
+          computeSpread(bestTarget);
+
+          // Recalculate dominant type
+          var tc = {};
+          for (var ci = 0; ci < bestTarget.children.length; ci++) {
+            var ch = self.groups.get(bestTarget.children[ci]);
+            if (ch) tc[ch.type] = (tc[ch.type] || 0) + ch.tileCount;
+          }
+          var bt = 'mixed', bc = 0;
+          var tks = Object.keys(tc);
+          for (var tk = 0; tk < tks.length; tk++) {
+            if (tc[tks[tk]] > bc) { bc = tc[tks[tk]]; bt = tks[tk]; }
+          }
+          bestTarget.type = bt;
+
+          // Remove the small group
+          self.groups.delete(small.id);
+          self.nodes.delete(small.id);
+          self.byGroup.delete(small.id);
+          newIds.splice(mi, 1);
+          changed = true;
+        }
+      }
+    }
+
     // Build adjacency for this level from children's adjacency
     for (var i = 0; i < newIds.length; i++) {
       var gA = self.groups.get(newIds[i]);

@@ -10,6 +10,7 @@ var Renderer = {
   showSense: false,
   expandedLevels: {},    // groupId → true if expanded
   highlightedGroupId: null, // group whose tiles are highlighted on map
+  _foldState: { individual: true, group: false },  // fold state for detail sections
   // Pre-computed: border info per tile (set once after hierarchy gen)
   borderInfo: null,  // flat array of {top,right,bottom,left} border flags + level + color
 
@@ -692,96 +693,267 @@ var Renderer = {
     this.inspectorEl.innerHTML = html;
   },
 
+  _toggleFold: function(key) {
+    this._foldState[key] = !this._foldState[key];
+    this.updateInspector();
+  },
+
+  // Generate a probabilistic individual from a group node (count > 1)
+  // Applies small variance to vitals to represent within-group distribution
+  _sampleIndividual: function(n) {
+    var individual = {};
+    if (n.traits.vitals) {
+      var v = n.traits.vitals;
+      individual.vitals = {};
+      var keys = Object.keys(v);
+      for (var i = 0; i < keys.length; i++) {
+        var val = v[keys[i]];
+        if (typeof val === 'number') {
+          // ±10% variance
+          var noise = (Rng.random() - 0.5) * 0.2;
+          individual.vitals[keys[i]] = Math.max(0, Math.min(100, val + val * noise));
+        } else {
+          individual.vitals[keys[i]] = val;
+        }
+      }
+    }
+    return individual;
+  },
+
+  // Build a foldable individual preview section for groups
+  _buildIndividualPreview: function(n) {
+    var tmpl = TEMPLATES[n.templateId];
+    var expanded = this._foldState.individual;
+    var arrow = expanded ? '&#9660;' : '&#9654;';
+
+    var html = '<div class="insp-individual-preview">';
+    html += '<div class="insp-fold-header" onclick="Renderer._toggleFold(\'individual\')">';
+    html += '<span class="insp-arrow">' + arrow + '</span> ';
+    html += '<span class="insp-label">L1 INDIVIDUAL</span> ';
+    html += '<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span> ' +
+      n.templateId + ' <span class="insp-val">×1</span>';
+    html += ' <span class="insp-null">(probabilistic sample)</span>';
+    html += '</div>';
+
+    if (expanded) {
+      var sampled = this._sampleIndividual(n);
+      html += '<div class="insp-individual-body">';
+
+      // Vitals
+      if (sampled.vitals) {
+        html += this._buildSection('vitals', sampled.vitals);
+      }
+
+      // Spatial (same as group — doesn't vary)
+      if (n.traits.spatial) {
+        html += this._buildSection('spatial', n.traits.spatial);
+      }
+
+      // Diet (same as group)
+      if (n.traits.diet) {
+        html += this._buildSection('diet', n.traits.diet);
+      }
+
+      // Social (same as group)
+      if (n.traits.social) {
+        html += this._buildSection('social', n.traits.social);
+      }
+
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  },
+
+  // Build a foldable group-level detail section
+  _buildGroupDetail: function(n) {
+    var tmpl = TEMPLATES[n.templateId];
+    var expanded = this._foldState.group;
+    var arrow = expanded ? '&#9660;' : '&#9654;';
+
+    var html = '<div class="insp-group-detail">';
+    html += '<div class="insp-fold-header" onclick="Renderer._toggleFold(\'group\')">';
+    html += '<span class="insp-arrow">' + arrow + '</span> ';
+    html += '<span class="insp-label">GROUP</span> ';
+    html += '<span style="color:' + tmpl.color + '">' + tmpl.symbol + '</span> ' +
+      n.templateId + ' <span class="insp-val">×' + Math.floor(n.count) + '</span>';
+    html += '</div>';
+
+    if (expanded) {
+      html += '<div class="insp-body">';
+
+      // Position
+      if (n.position) {
+        html += this._buildSection('position', n.position);
+      }
+
+      // Vitals (group aggregate)
+      if (n.traits.vitals) {
+        html += this._buildSection('vitals', n.traits.vitals);
+      }
+
+      // Agency
+      if (n.traits.agency) {
+        var ag = n.traits.agency;
+        var agencyView = {
+          activeRole: ag.activeRole,
+          lastAction: ag.lastAction,
+        };
+        if (ag.activePlan) {
+          agencyView.activePlan = {
+            goal: ag.activePlan.goal,
+            stepIdx: ag.activePlan.stepIdx,
+            target: ag.activePlan.target,
+          };
+        }
+        if (ag.commitmentBonus > 0) agencyView.commitment = ag.commitmentBonus;
+        if (ag.actionSpread) agencyView.actionSpread = ag.actionSpread;
+        html += this._buildSection('agency', agencyView);
+      }
+
+      // Diet
+      if (n.traits.diet) {
+        html += this._buildSection('diet', n.traits.diet);
+      }
+
+      // Group trait
+      if (n.traits.group) {
+        html += this._buildSection('group', {
+          maxSize: n.traits.group.maxSize,
+          mergeThreshold: n.traits.group.mergeThreshold,
+        });
+      }
+
+      // Spatial
+      if (n.traits.spatial) {
+        html += this._buildSection('spatial', n.traits.spatial);
+      }
+
+      // Carry load
+      if (n.contains && n.contains.length > 0) {
+        var load = carriedLoad(n);
+        html += this._buildSection('carry', {
+          weight: load.weight.toFixed(1) + ' / ' + load.maxWeight.toFixed(1),
+          bulk: load.bulk.toFixed(1) + ' / ' + load.maxBulk.toFixed(1),
+          speedFactor: carrySpeedFactor(n).toFixed(2),
+        });
+      }
+
+      // Social
+      if (n.traits.social) {
+        html += this._buildSection('social', n.traits.social);
+      }
+
+      // Sense model
+      if (this.showSense && n.traits.agency) {
+        var sense = Sense.scan(n);
+        html += this._buildSection('sense', {
+          food: { here: sense.food.here, count: sense.food.count },
+          prey: { here: sense.prey.here, count: sense.prey.count },
+          threats: { count: sense.threats.count, here: sense.threats.here },
+          biggerThreats: { count: sense.biggerThreats.count, here: sense.biggerThreats.here },
+          water: sense.water,
+          stones: sense.stones,
+          signals: sense.signals,
+          allies: sense.allies,
+          self: sense.self,
+          neighbors: sense.neighbors.length,
+          foodNearby: sense.foodNearby,
+          preyNearby: sense.preyNearby,
+          waterNearby: sense.waterNearby,
+        });
+      }
+
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  },
+
   _buildSelectedDetail: function(n) {
     var tmpl = TEMPLATES[n.templateId];
     var html = '<div class="insp-detail">';
     html += '<div class="insp-detail-header"><b>' + tmpl.symbol + ' ' + n.templateId +
       '</b> #' + n.id + ' ×' + Math.floor(n.count) + '</div>';
-    html += '<div class="insp-body">';
 
-    // Position
-    if (n.position) {
-      html += this._buildSection('position', n.position);
-    }
+    // For groups (count > 1): show foldable individual preview + group detail
+    if (n.count > 1) {
+      html += this._buildIndividualPreview(n);
+      html += this._buildGroupDetail(n);
+    } else {
+      // Single entity: show flat detail as before
+      html += '<div class="insp-body">';
 
-    // Vitals detail
-    if (n.traits.vitals) {
-      html += this._buildSection('vitals', n.traits.vitals);
-    }
-
-    // Agency detail
-    if (n.traits.agency) {
-      var ag = n.traits.agency;
-      var agencyView = {
-        activeRole: ag.activeRole,
-        lastAction: ag.lastAction,
-      };
-      if (ag.activePlan) {
-        agencyView.activePlan = {
-          goal: ag.activePlan.goal,
-          stepIdx: ag.activePlan.stepIdx,
-          target: ag.activePlan.target,
-        };
+      if (n.position) {
+        html += this._buildSection('position', n.position);
       }
-      if (ag.commitmentBonus > 0) agencyView.commitment = ag.commitmentBonus;
-      if (ag.actionSpread) agencyView.actionSpread = ag.actionSpread;
-      html += this._buildSection('agency', agencyView);
+      if (n.traits.vitals) {
+        html += this._buildSection('vitals', n.traits.vitals);
+      }
+      if (n.traits.agency) {
+        var ag = n.traits.agency;
+        var agencyView = {
+          activeRole: ag.activeRole,
+          lastAction: ag.lastAction,
+        };
+        if (ag.activePlan) {
+          agencyView.activePlan = {
+            goal: ag.activePlan.goal,
+            stepIdx: ag.activePlan.stepIdx,
+            target: ag.activePlan.target,
+          };
+        }
+        if (ag.commitmentBonus > 0) agencyView.commitment = ag.commitmentBonus;
+        if (ag.actionSpread) agencyView.actionSpread = ag.actionSpread;
+        html += this._buildSection('agency', agencyView);
+      }
+      if (n.traits.diet) {
+        html += this._buildSection('diet', n.traits.diet);
+      }
+      if (n.traits.group) {
+        html += this._buildSection('group', {
+          maxSize: n.traits.group.maxSize,
+          mergeThreshold: n.traits.group.mergeThreshold,
+        });
+      }
+      if (n.traits.spatial) {
+        html += this._buildSection('spatial', n.traits.spatial);
+      }
+      if (n.contains && n.contains.length > 0) {
+        var load = carriedLoad(n);
+        html += this._buildSection('carry', {
+          weight: load.weight.toFixed(1) + ' / ' + load.maxWeight.toFixed(1),
+          bulk: load.bulk.toFixed(1) + ' / ' + load.maxBulk.toFixed(1),
+          speedFactor: carrySpeedFactor(n).toFixed(2),
+        });
+      }
+      if (n.traits.social) {
+        html += this._buildSection('social', n.traits.social);
+      }
+      if (this.showSense && n.traits.agency) {
+        var sense = Sense.scan(n);
+        html += this._buildSection('sense', {
+          food: { here: sense.food.here, count: sense.food.count },
+          prey: { here: sense.prey.here, count: sense.prey.count },
+          threats: { count: sense.threats.count, here: sense.threats.here },
+          biggerThreats: { count: sense.biggerThreats.count, here: sense.biggerThreats.here },
+          water: sense.water,
+          stones: sense.stones,
+          signals: sense.signals,
+          allies: sense.allies,
+          self: sense.self,
+          neighbors: sense.neighbors.length,
+          foodNearby: sense.foodNearby,
+          preyNearby: sense.preyNearby,
+          waterNearby: sense.waterNearby,
+        });
+      }
+      html += '</div>';
     }
 
-    // Diet
-    if (n.traits.diet) {
-      html += this._buildSection('diet', n.traits.diet);
-    }
-
-    // Group trait
-    if (n.traits.group) {
-      html += this._buildSection('group', {
-        maxSize: n.traits.group.maxSize,
-        mergeThreshold: n.traits.group.mergeThreshold,
-      });
-    }
-
-    // Spatial
-    if (n.traits.spatial) {
-      html += this._buildSection('spatial', n.traits.spatial);
-    }
-
-    // Carry load
-    if (n.contains && n.contains.length > 0) {
-      var load = carriedLoad(n);
-      html += this._buildSection('carry', {
-        weight: load.weight.toFixed(1) + ' / ' + load.maxWeight.toFixed(1),
-        bulk: load.bulk.toFixed(1) + ' / ' + load.maxBulk.toFixed(1),
-        speedFactor: carrySpeedFactor(n).toFixed(2),
-      });
-    }
-
-    // Social
-    if (n.traits.social) {
-      html += this._buildSection('social', n.traits.social);
-    }
-
-    // Sense model
-    if (this.showSense && n.traits.agency) {
-      var sense = Sense.scan(n);
-      html += this._buildSection('sense', {
-        food: { here: sense.food.here, count: sense.food.count },
-        prey: { here: sense.prey.here, count: sense.prey.count },
-        threats: { count: sense.threats.count, here: sense.threats.here },
-        biggerThreats: { count: sense.biggerThreats.count, here: sense.biggerThreats.here },
-        water: sense.water,
-        stones: sense.stones,
-        signals: sense.signals,
-        allies: sense.allies,
-        self: sense.self,
-        neighbors: sense.neighbors.length,
-        foodNearby: sense.foodNearby,
-        preyNearby: sense.preyNearby,
-        waterNearby: sense.waterNearby,
-      });
-    }
-
-    html += '</div></div>';
+    html += '</div>';
     return html;
   },
 };

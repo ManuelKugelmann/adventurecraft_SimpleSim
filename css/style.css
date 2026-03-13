@@ -440,3 +440,43 @@ h1 {
 #inspector .insp-null {
   color: #666;
 }
+
+/* Foldable section headers (individual preview, group detail) */
+#inspector .insp-fold-header {
+  cursor: pointer;
+  line-height: 1.5;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+#inspector .insp-fold-header:hover {
+  color: #e0e0ff;
+  background: #2a2a4a;
+}
+
+/* Probabilistic individual preview — muted to indicate not a realized entity */
+#inspector .insp-individual-preview {
+  background: #16162a;
+  border: 1px dashed #3a3a5a;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  opacity: 0.75;
+}
+
+#inspector .insp-individual-body {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+/* Group detail section */
+#inspector .insp-group-detail {
+  background: #1e1e36;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+}
