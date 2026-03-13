@@ -48,6 +48,23 @@ var Groups = {
               (va.thirst === undefined || vb.thirst === undefined || Math.abs(va.thirst - vb.thirst) < thr);
           if (vitalsClose && a.count + b.count <= gt.maxSize) {
             var totalCount = a.count + b.count;
+            // Update diversity: pooled variance = (n1*(σ1²+d1²) + n2*(σ2²+d2²)) / (n1+n2)
+            var da = (a.traits.group && a.traits.group.diversity) ? a.traits.group.diversity : null;
+            var db = (b.traits.group && b.traits.group.diversity) ? b.traits.group.diversity : null;
+            if (da) {
+              var vitalKeys = ['hunger', 'energy', 'health', 'thirst'];
+              for (var vi = 0; vi < vitalKeys.length; vi++) {
+                var vk = vitalKeys[vi];
+                if (va[vk] === undefined || vb[vk] === undefined) continue;
+                var newMean = (va[vk] * a.count + vb[vk] * b.count) / totalCount;
+                var varA = (da[vk] || 0) * (da[vk] || 0);
+                var varB = db ? (db[vk] || 0) * (db[vk] || 0) : 0;
+                var dA = va[vk] - newMean;
+                var dB = vb[vk] - newMean;
+                var pooled = (a.count * (varA + dA * dA) + b.count * (varB + dB * dB)) / totalCount;
+                da[vk] = Math.sqrt(pooled);
+              }
+            }
             va.hunger = (va.hunger * a.count + vb.hunger * b.count) / totalCount;
             va.energy = (va.energy * a.count + vb.energy * b.count) / totalCount;
             if (va.health !== undefined && vb.health !== undefined) {
@@ -67,6 +84,7 @@ var Groups = {
             }
             b.contains = [];
             computeSpread(a);
+            a.seed = Rng.random(); // new seed captures merged distribution
             World.removeGroup(b);
           }
         }
@@ -109,19 +127,35 @@ var Groups = {
       newNode.center.y = group.center.y;
       computeSpread(newNode);
 
-      // Preserve vitals from parent with slight variation
+      // Preserve vitals from parent with diversity-scaled variation
       if (node.traits.vitals) {
         var nv = node.traits.vitals;
-        newNode.traits.vitals.hunger = clampVital(nv.hunger + (Rng.random() - 0.5) * 5);
-        newNode.traits.vitals.energy = clampVital(nv.energy + (Rng.random() - 0.5) * 5);
-        if (nv.health !== undefined) newNode.traits.vitals.health = clampVital(nv.health + (Rng.random() - 0.5) * 3);
-        if (nv.thirst !== undefined) newNode.traits.vitals.thirst = clampVital(nv.thirst + (Rng.random() - 0.5) * 3);
+        var dv = (node.traits.group && node.traits.group.diversity) ? node.traits.group.diversity : null;
+        var vitalKeys = ['hunger', 'energy', 'health', 'thirst'];
+        for (var vi = 0; vi < vitalKeys.length; vi++) {
+          var vk = vitalKeys[vi];
+          if (nv[vk] === undefined) continue;
+          var sigma = dv ? (dv[vk] || 0) : 2.5;
+          newNode.traits.vitals[vk] = clampVital(nv[vk] + (Rng.random() - 0.5) * 2 * sigma);
+        }
+        // Inherit diversity with fresh seed; variance stays (split doesn't reduce spread)
+        if (dv && newNode.traits.group) {
+          newNode.traits.group.diversity = {
+            hunger: dv.hunger || 0, energy: dv.energy || 0,
+            health: dv.health || 0, thirst: dv.thirst || 0,
+            seed: Math.floor(Rng.random() * 2147483647),
+          };
+        }
       }
 
       // Preserve agency role from parent
       if (node.traits.agency && newNode.traits.agency) {
         newNode.traits.agency.activeRole = node.traits.agency.activeRole;
       }
+
+      newNode.splitParent = node.id;
+      newNode.seed = Rng.random();
+      node.seed = Rng.random(); // parent distribution changed too
 
       World.nodes.set(newNode.id, newNode);
       if (!World.byGroup.has(targetGroup)) World.byGroup.set(targetGroup, new Set());

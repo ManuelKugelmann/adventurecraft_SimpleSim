@@ -22,10 +22,12 @@ function createNode(templateId) {
     contains: [],           // node IDs contained by this node (carried items)
     containedBy: null,      // node ID of carrier, or null if free
     position: { at: 'center', target: null, progress: 0 }, // graph position within container
+    seed: null,             // PRNG seed for deterministic expansion of in-distribution members
+    splitParent: null,      // source group ID for quick re-compression after split
     traits: {},
   };
 
-  // Deep-copy default traits from template
+  // Deep-copy default traits from template (2 levels deep for nested objects)
   var tkeys = Object.keys(template.traits);
   for (var i = 0; i < tkeys.length; i++) {
     var traitName = tkeys[i];
@@ -33,10 +35,22 @@ function createNode(templateId) {
     if (Array.isArray(src)) {
       node.traits[traitName] = src.slice();
     } else if (typeof src === 'object' && src !== null) {
-      node.traits[traitName] = Object.assign({}, src);
+      var copy = {};
+      var skeys = Object.keys(src);
+      for (var j = 0; j < skeys.length; j++) {
+        var v = src[skeys[j]];
+        copy[skeys[j]] = (typeof v === 'object' && v !== null && !Array.isArray(v))
+          ? Object.assign({}, v) : v;
+      }
+      node.traits[traitName] = copy;
     } else {
       node.traits[traitName] = src;
     }
+  }
+
+  // Assign a unique diversity seed for deterministic probabilistic sampling
+  if (node.traits.group && node.traits.group.diversity) {
+    node.traits.group.diversity.seed = Math.floor(Rng.random() * 2147483647);
   }
 
   computeSpread(node);

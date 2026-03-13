@@ -262,13 +262,20 @@ var Roles = {
       return (b.priority || 0) - (a.priority || 0);
     });
 
+    // Use stored diversity for sampling spread (fallback to defaults)
+    var dv = (node.traits.group && node.traits.group.diversity) ? node.traits.group.diversity : null;
+    var sH = dv ? (dv.hunger || 3) * 2 : 6;
+    var sE = dv ? (dv.energy || 3) * 2 : 5;
+    var sHp = dv ? (dv.health || 2) * 2 : 4;
+    var sT = dv ? (dv.thirst || 2) * 2 : 4;
+
     for (var p = 0; p < node.count; p++) {
       var jv = {
-        hunger: clamp(v.hunger + (Rng.random() - 0.5) * 12, 0, 100),
-        energy: clamp(v.energy + (Rng.random() - 0.5) * 10, 0, 100),
+        hunger: clamp(v.hunger + (Rng.random() - 0.5) * 2 * sH, 0, 100),
+        energy: clamp(v.energy + (Rng.random() - 0.5) * 2 * sE, 0, 100),
       };
-      if (v.health !== undefined) jv.health = clamp(v.health + (Rng.random() - 0.5) * 8, 0, 100);
-      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Rng.random() - 0.5) * 8, 0, 100);
+      if (v.health !== undefined) jv.health = clamp(v.health + (Rng.random() - 0.5) * 2 * sHp, 0, 100);
+      if (v.thirst !== undefined) jv.thirst = clamp(v.thirst + (Rng.random() - 0.5) * 2 * sT, 0, 100);
 
       for (var i = 0; i < sortedRules.length; i++) {
         var rule = sortedRules[i];

@@ -115,8 +115,8 @@ var TEMPLATES = {
   // weight/bulk: per unit count. Total = weight * count when carried.
   grass: {
     category: 'plant',
-    symbol: '♣',
-    color: '#6dbf5c',
+    symbol: '.',
+    color: '#4a8a3f',
     renderPriority: 0,
     defaultCount: 20,
     strength: 0,
@@ -125,12 +125,12 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
-      group: { mergeThreshold: 15, maxSize: 200 },
+      group: { mergeThreshold: 15, maxSize: 200, diversity: { hunger: 0, energy: 2, seed: 0 } },
     },
   },
   bush: {
     category: 'plant',
-    symbol: '❀',
+    symbol: '♣',
     color: '#3d8b37',
     renderPriority: 1,
     defaultCount: 12,
@@ -140,13 +140,13 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
-      group: { mergeThreshold: 15, maxSize: 100 },
+      group: { mergeThreshold: 15, maxSize: 100, diversity: { hunger: 0, energy: 2, seed: 0 } },
     },
   },
   tree: {
     category: 'plant',
     symbol: '♠',
-    color: '#2d6b27',
+    color: '#1e4d1a',
     renderPriority: 2,
     defaultCount: 5,
     strength: 0,
@@ -155,7 +155,7 @@ var TEMPLATES = {
     traits: {
       vitals: { hunger: 0, energy: 100 },
       diet: { eats: [], eatenBy: ['herbivore'] },
-      group: { mergeThreshold: 15, maxSize: 50 },
+      group: { mergeThreshold: 15, maxSize: 50, diversity: { hunger: 0, energy: 2, seed: 0 } },
     },
   },
   // --- Items (bulk nodes, no agency, no vitals) ---
@@ -170,7 +170,7 @@ var TEMPLATES = {
     bulk: 0.2,
     traits: {
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
-      group: { mergeThreshold: 999, maxSize: 200 },
+      group: { mergeThreshold: 999, maxSize: 200, diversity: { seed: 0 } },
     },
   },
   seeds: {
@@ -184,7 +184,7 @@ var TEMPLATES = {
     bulk: 0.15,
     traits: {
       diet: { eats: [], eatenBy: ['herbivore', 'omnivore'] },
-      group: { mergeThreshold: 999, maxSize: 200 },
+      group: { mergeThreshold: 999, maxSize: 200, diversity: { seed: 0 } },
     },
   },
   // --- Stones (bulk nodes, no agency, no vitals, not edible) ---
@@ -199,7 +199,7 @@ var TEMPLATES = {
     bulk: 2.0,
     traits: {
       diet: { eats: [], eatenBy: [] },
-      group: { mergeThreshold: 999, maxSize: 500 },
+      group: { mergeThreshold: 999, maxSize: 500, diversity: { seed: 0 } },
     },
   },
   // --- Signals (virtual items: sounds, scents, tracks — decay over time) ---
@@ -232,7 +232,7 @@ var TEMPLATES = {
       social: { gregarious: 0.6 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 40 },
+      group: { mergeThreshold: 15, maxSize: 40, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
   deer: {
@@ -250,7 +250,7 @@ var TEMPLATES = {
       social: { gregarious: 0.7 },
       diet: { eats: ['plant', 'seed'], eatenBy: ['carnivore', 'omnivore'] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 40 },
+      group: { mergeThreshold: 15, maxSize: 40, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
   // --- Omnivores ---
@@ -269,7 +269,7 @@ var TEMPLATES = {
       social: { gregarious: 0.5 },
       diet: { eats: ['plant', 'seed', 'herbivore'], eatenBy: ['carnivore'] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 40 },
+      group: { mergeThreshold: 15, maxSize: 40, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
   bear: {
@@ -287,7 +287,7 @@ var TEMPLATES = {
       social: { gregarious: 0.2 },
       diet: { eats: ['plant', 'seed', 'herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 20 },
+      group: { mergeThreshold: 15, maxSize: 20, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
   // --- Carnivores ---
@@ -306,7 +306,7 @@ var TEMPLATES = {
       social: { gregarious: 0.3 },
       diet: { eats: ['herbivore'], eatenBy: [] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 30 },
+      group: { mergeThreshold: 15, maxSize: 30, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
   wolf: {
@@ -324,7 +324,7 @@ var TEMPLATES = {
       social: { gregarious: 0.8 },
       diet: { eats: ['herbivore', 'omnivore'], eatenBy: [] },
       agency: { activeRole: 'animal', activePlan: null, lastAction: null, commitmentBonus: 0 },
-      group: { mergeThreshold: 15, maxSize: 25 },
+      group: { mergeThreshold: 15, maxSize: 25, diversity: { hunger: 3, energy: 3, health: 2, thirst: 2, seed: 0 } },
     },
   },
 };

@@ -741,57 +741,147 @@ var World = {
   generateLevel: function(level) {
     var self = this;
     var prevIds = this.levels[level - 1];
-    var assigned = {};
     var newIds = [];
 
-    // Shuffle for variety
-    var shuffled = prevIds.slice();
-    for (var i = shuffled.length - 1; i > 0; i--) {
-      var j = Math.floor(Rng.random() * (i + 1));
-      var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+    // Parallel merge: multiple rounds per level.
+    // Each round, every unclaimed group claims unclaimed direct neighbors (1-hop).
+    // Rounds repeat until target size reached, reducing group count aggressively
+    // so fewer hierarchy levels are needed.
+
+    // Start: each prev-level group is its own cluster
+    var clusterOf = {};  // prevId → cluster representative id
+    for (var i = 0; i < prevIds.length; i++) {
+      clusterOf[prevIds[i]] = prevIds[i];
     }
 
-    for (var si = 0; si < shuffled.length; si++) {
-      var startId = shuffled[si];
-      if (assigned[startId]) continue;
+    // Find root representative (with path compression)
+    function find(id) {
+      while (clusterOf[id] !== id) {
+        clusterOf[id] = clusterOf[clusterOf[id]]; // path compression
+        id = clusterOf[id];
+      }
+      return id;
+    }
 
-      // Flood-fill adjacent groups at prev level
-      var cluster = [startId];
-      assigned[startId] = true;
-      var queue = [startId];
+    // Merge two clusters
+    var clusterMembers = {};  // representative → [member ids]
+    for (var i = 0; i < prevIds.length; i++) {
+      clusterMembers[prevIds[i]] = [prevIds[i]];
+    }
 
-      while (queue.length > 0 && cluster.length < CONFIG.HIERARCHY_BRANCH_MAX) {
-        var current = queue.shift();
-        var currentGroup = self.groups.get(current);
-        if (!currentGroup) continue;
+    function merge(a, b) {
+      var ra = find(a), rb = find(b);
+      if (ra === rb) return;
+      // Smaller merges into larger
+      var ma = clusterMembers[ra], mb = clusterMembers[rb];
+      if (ma.length < mb.length) { var tmp = ra; ra = rb; rb = tmp; tmp = ma; ma = mb; mb = tmp; }
+      // rb merges into ra
+      clusterOf[rb] = ra;
+      for (var i = 0; i < mb.length; i++) {
+        ma.push(mb[i]);
+        clusterOf[mb[i]] = ra;
+      }
+      delete clusterMembers[rb];
+    }
 
-        var neighbors = currentGroup.neighbors;
-        for (var ni = 0; ni < neighbors.length; ni++) {
-          var nid = neighbors[ni];
-          if (assigned[nid] || cluster.length >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
-          // Only group things at the same level
+    // Count distinct clusters
+    function clusterCount() {
+      return Object.keys(clusterMembers).length;
+    }
+
+    // Target: reduce to roughly prevIds.length / targetSize clusters per round
+    var targetSize = Math.floor((CONFIG.HIERARCHY_BRANCH_MIN + CONFIG.HIERARCHY_BRANCH_MAX) / 2);
+    var targetClusters = Math.max(CONFIG.HIERARCHY_BRANCH_MAX, Math.ceil(prevIds.length / targetSize));
+    var maxRounds = 20; // safety cap
+
+    for (var round = 0; round < maxRounds && clusterCount() > targetClusters; round++) {
+      // Shuffle for fair parallel access
+      var shuffled = prevIds.slice();
+      for (var i = shuffled.length - 1; i > 0; i--) {
+        var j = Math.floor(Rng.random() * (i + 1));
+        var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
+
+      var mergedThisRound = false;
+
+      for (var si = 0; si < shuffled.length; si++) {
+        var id = shuffled[si];
+        var myRoot = find(id);
+        var mySize = clusterMembers[myRoot] ? clusterMembers[myRoot].length : 1;
+        if (mySize >= CONFIG.HIERARCHY_BRANCH_MAX) continue;
+
+        var g = self.groups.get(id);
+        if (!g) continue;
+
+        // Try to merge with a neighbor: prefer same terrain type, smallest cluster
+        var myType = g.type;
+        var bestNid = null;
+        var bestScore = -Infinity;
+        for (var ni = 0; ni < g.neighbors.length; ni++) {
+          var nid = g.neighbors[ni];
+          if (clusterOf[nid] === undefined) continue; // not at this level
+          var nRoot = find(nid);
+          if (nRoot === myRoot) continue; // same cluster
+          var nSize = clusterMembers[nRoot] ? clusterMembers[nRoot].length : 1;
+          // Only merge if combined won't exceed BRANCH_MAX
+          if (mySize + nSize > CONFIG.HIERARCHY_BRANCH_MAX) continue;
           var ng = self.groups.get(nid);
-          if (!ng || ng.level !== level - 1) continue;
-          cluster.push(nid);
-          assigned[nid] = true;
-          queue.push(nid);
+          if (!ng) continue;
+          // Terrain similarity: loosens with level
+          // Level 2: only merge same type
+          // Level 3: allow different land types but not land+water
+          // Level 4+: allow anything
+          var sameType = (ng.type === myType) ? 1 : 0;
+          var bothLand = (myType !== 'water' && ng.type !== 'water');
+          var compatible = sameType ||
+            (level >= 3 && bothLand) ||
+            (level >= 4);
+          if (!compatible) continue;
+          // Score: prefer same type (+10), then smaller clusters
+          var score = sameType * 10 - nSize;
+          if (score > bestScore) {
+            bestScore = score;
+            bestNid = nid;
+          }
+        }
+
+        if (bestNid !== null) {
+          merge(id, bestNid);
+          mergedThisRound = true;
         }
       }
 
-      // Create parent group
+      if (!mergedThisRound) break; // no progress, stop
+    }
+
+    // Collect final clusters
+    var seen = {};
+    var clusters = [];
+    for (var i = 0; i < prevIds.length; i++) {
+      var root = find(prevIds[i]);
+      if (!seen[root]) {
+        seen[root] = true;
+        clusters.push(clusterMembers[root]);
+      }
+    }
+
+    // Create parent groups from clusters
+    for (var ci = 0; ci < clusters.length; ci++) {
+      var cluster = clusters[ci];
+      if (cluster.length === 0) continue;
+
       var parentNode = createNode('tilegroup');
       parentNode.level = level;
       parentNode.children = cluster;
       parentNode.parentGroup = null;
       parentNode.neighbors = [];
 
-      // Aggregate properties from children
       var allTiles = [];
       var cx = 0, cy = 0, totalFertility = 0;
       var typeCounts = {};
 
-      for (var ci = 0; ci < cluster.length; ci++) {
-        var child = self.groups.get(cluster[ci]);
+      for (var ki = 0; ki < cluster.length; ki++) {
+        var child = self.groups.get(cluster[ki]);
         child.parentGroup = parentNode.id;
 
         for (var ti = 0; ti < child.tiles.length; ti++) {
@@ -811,7 +901,6 @@ var World = {
       parentNode.fertility = totalFertility / allTiles.length;
       computeSpread(parentNode);
 
-      // Dominant type
       var bestType = 'mixed', bestCount = 0;
       var typeKeys = Object.keys(typeCounts);
       for (var tk = 0; tk < typeKeys.length; tk++) {
